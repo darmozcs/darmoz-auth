@@ -1,0 +1,22 @@
+target/
+*.class
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.settings/
+.classpath
+.project
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Secrets / local keys - never commit
+.env
+keys-dev/
+*.pem

@@ -1,0 +1,27 @@
+name: darmoz-auth
+
+services:
+  darmoz-auth:
+    image: ${DARMOZ_AUTH_IMAGE:-ghcr.io/darmozcs/darmoz-auth:latest}
+    container_name: darmoz-auth
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./keys:/app/keys:ro
+    networks:
+      - proxy
+      - data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.routers.darmoz-auth.rule=Host(`${DARMOZ_AUTH_DOMAIN}`) && PathPrefix(`${DARMOZ_AUTH_PATH_PREFIX}`)"
+      - "traefik.http.routers.darmoz-auth.entrypoints=websecure"
+      - "traefik.http.routers.darmoz-auth.tls.certresolver=letsencrypt"
+      - "traefik.http.routers.darmoz-auth.middlewares=secure-headers@file"
+      - "traefik.http.services.darmoz-auth.loadbalancer.server.port=${DARMOZ_AUTH_PORT:-8080}"
+
+networks:
+  proxy:
+    external: true
+  data:
+    external: true

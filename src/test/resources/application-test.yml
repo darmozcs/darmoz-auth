@@ -1,0 +1,10 @@
+jwt:
+  access-token-ttl-seconds: 720
+  refresh-token-ttl-days: 30
+  issuer: darmoz-auth-test
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health

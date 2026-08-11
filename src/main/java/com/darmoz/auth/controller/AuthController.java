@@ -1,0 +1,67 @@
+package com.darmoz.auth.controller;
+
+import com.darmoz.auth.dto.request.LoginRequest;
+import com.darmoz.auth.dto.request.LogoutRequest;
+import com.darmoz.auth.dto.request.RefreshRequest;
+import com.darmoz.auth.dto.request.RegisterRequest;
+import com.darmoz.auth.dto.response.AuthResponse;
+import com.darmoz.auth.dto.response.VerifyResponse;
+import com.darmoz.auth.service.AuthService;
+import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping
+public class AuthController {
+
+    private static final String BEARER_PREFIX = "Bearer ";
+
+    private final AuthService authService;
+
+    public AuthController(AuthService authService) {
+        this.authService = authService;
+    }
+
+    @PostMapping("/register")
+    public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(authService.register(request));
+    }
+
+    @PostMapping("/login")
+    public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
+        return ResponseEntity.ok(authService.login(request));
+    }
+
+    @PostMapping("/refresh")
+    public ResponseEntity<AuthResponse> refresh(@Valid @RequestBody RefreshRequest request) {
+        return ResponseEntity.ok(authService.refresh(request));
+    }
+
+    @PostMapping("/logout")
+    public ResponseEntity<Void> logout(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader,
+            @Valid @RequestBody LogoutRequest request) {
+        authService.logout(extractBearerToken(authorizationHeader), request.refreshToken());
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/verify")
+    public ResponseEntity<VerifyResponse> verify(
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader) {
+        return ResponseEntity.ok(authService.verify(extractBearerToken(authorizationHeader)));
+    }
+
+    private String extractBearerToken(String authorizationHeader) {
+        if (authorizationHeader == null || !authorizationHeader.startsWith(BEARER_PREFIX)) {
+            return null;
+        }
+        return authorizationHeader.substring(BEARER_PREFIX.length());
+    }
+}
