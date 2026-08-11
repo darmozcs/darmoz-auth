@@ -10,7 +10,9 @@ RUN mvn -B -q package -DskipTests
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
-RUN addgroup -S spring && adduser -S spring -G spring
+# uid/gid 1000 para poder leer las llaves JWT montadas de solo lectura
+# desde el host (owner darmoz, uid 1000, chmod 600).
+RUN addgroup -g 1000 spring && adduser -D -u 1000 -G spring spring
 COPY --from=build /build/target/darmoz-auth.jar app.jar
 USER spring
 
