@@ -23,6 +23,7 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+    table: auth_flyway_schema_history
 
 jwt:
   private-key-path: ${JWT_PRIVATE_KEY_PATH:./keys-dev/private_key.pem}
