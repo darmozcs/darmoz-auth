@@ -47,7 +47,7 @@ public class JwtService {
         Instant issuedAt = Instant.now();
         Instant expiresAt = issuedAt.plus(properties.getAccessTokenTtlSeconds(), ChronoUnit.SECONDS);
 
-        List<String> roles = user.getRoles().stream().map(Enum::name).collect(Collectors.toList());
+        List<String> roles = user.getRoles().stream().map(Role::getName).collect(Collectors.toList());
         List<Map<String, String>> permissionClaims = permissions.stream()
                 .map(permission -> Map.of(
                         PERMISSION_SERVICE, permission.service(),
@@ -94,8 +94,7 @@ public class JwtService {
     private ParsedAccessToken toParsedAccessToken(Claims claims) {
         UUID userId = UUID.fromString(claims.getSubject());
         String email = claims.get(CLAIM_EMAIL, String.class);
-        Set<Role> roles = ((List<String>) claims.get(CLAIM_ROLES, List.class))
-                .stream().map(Role::valueOf).collect(Collectors.toSet());
+        Set<String> roles = Set.copyOf((List<String>) claims.get(CLAIM_ROLES, List.class));
         List<Map<String, String>> rawPermissions = claims.get(CLAIM_PERMISSIONS, List.class);
         List<PermissionDto> permissions = rawPermissions == null ? List.of() : rawPermissions.stream()
                 .map(claim -> new PermissionDto(
@@ -109,7 +108,7 @@ public class JwtService {
     public record IssuedAccessToken(String token, UUID jti, Instant expiresAt) {
     }
 
-    public record ParsedAccessToken(UUID userId, String email, Set<Role> roles, List<PermissionDto> permissions,
+    public record ParsedAccessToken(UUID userId, String email, Set<String> roles, List<PermissionDto> permissions,
                                      UUID jti, Instant expiresAt) {
     }
 }

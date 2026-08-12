@@ -104,6 +104,6 @@ class RefreshTokenServiceTest {
     }
 
     private User userInstance() {
-        return new User(userId, "user@darmoz.com", "hash", Set.of(Role.USER));
+        return new User(userId, "user@darmoz.com", "hash", Set.of(new Role("USER")));
     }
 }

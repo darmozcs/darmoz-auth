@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>darmoz-auth · Admin</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body class="login-page">
+<div class="card">
+  <h1>Panel de administración</h1>
+  <form id="login-form">
+    <label for="email">Email</label>
+    <input type="email" id="email" required autocomplete="username">
+
+    <label for="password">Password</label>
+    <input type="password" id="password" required autocomplete="current-password">
+
+    <div class="form-actions">
+      <button type="submit" id="login-submit">Entrar</button>
+    </div>
+    <p class="error" id="login-error"></p>
+  </form>
+</div>
+
+<script>
+const AUTH_BASE = '/auth';
+
+sessionStorage.removeItem('darmoz_admin_session');
+
+document.getElementById('login-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const email = document.getElementById('email').value;
+  const password = document.getElementById('password').value;
+  const errorEl = document.getElementById('login-error');
+  const submitBtn = document.getElementById('login-submit');
+  errorEl.textContent = '';
+  submitBtn.disabled = true;
+
+  try {
+    const response = await fetch(`${AUTH_BASE}/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      errorEl.textContent = body?.message || 'Email o password inválidos.';
+      return;
+    }
+
+    const auth = await response.json();
+    if (!auth.roles || !auth.roles.includes('SUPER')) {
+      errorEl.textContent = 'Este usuario no tiene el rol SUPER; no puede acceder al panel.';
+      return;
+    }
+
+    sessionStorage.setItem('darmoz_admin_session', JSON.stringify({
+      accessToken: auth.accessToken,
+      refreshToken: auth.refreshToken,
+      email: auth.email,
+    }));
+    window.location.href = 'dashboard.html';
+  } catch (err) {
+    errorEl.textContent = 'No se pudo conectar con el servidor.';
+  } finally {
+    submitBtn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

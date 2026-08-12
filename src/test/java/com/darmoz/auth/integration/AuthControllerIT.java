@@ -10,6 +10,7 @@ import com.darmoz.auth.dto.response.VerifyResponse;
 import com.darmoz.auth.entity.Role;
 import com.darmoz.auth.entity.RolePermission;
 import com.darmoz.auth.repository.RolePermissionRepository;
+import com.darmoz.auth.repository.RoleRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,12 +34,16 @@ class AuthControllerIT extends AbstractIntegrationTest {
     @Autowired
     private RolePermissionRepository rolePermissionRepository;
 
+    @Autowired
+    private RoleRepository roleRepository;
+
     private PermissionDto expectedPermission;
 
     @BeforeEach
     void seedRolePermissions() {
         rolePermissionRepository.deleteAll();
-        rolePermissionRepository.save(new RolePermission(Role.USER, "nexora-api", "GET", "/api/products/**"));
+        Role userRole = roleRepository.findByName("USER").orElseThrow();
+        rolePermissionRepository.save(new RolePermission(userRole, "nexora-api", "GET", "/api/products/**"));
         expectedPermission = new PermissionDto("nexora-api", "GET", "/api/products/**");
     }
 

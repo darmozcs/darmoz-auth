@@ -12,6 +12,7 @@ import com.darmoz.auth.entity.User;
 import com.darmoz.auth.exception.InvalidCredentialsException;
 import com.darmoz.auth.exception.UserAlreadyExistsException;
 import com.darmoz.auth.repository.RevokedAccessTokenRepository;
+import com.darmoz.auth.repository.RoleRepository;
 import com.darmoz.auth.repository.UserRepository;
 import io.jsonwebtoken.ExpiredJwtException;
 import io.jsonwebtoken.JwtException;
@@ -30,7 +31,10 @@ import java.util.stream.Collectors;
 @Service
 public class AuthService {
 
+    private static final String DEFAULT_ROLE = "USER";
+
     private final UserRepository userRepository;
+    private final RoleRepository roleRepository;
     private final RevokedAccessTokenRepository revokedAccessTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
@@ -38,12 +42,14 @@ public class AuthService {
     private final PermissionService permissionService;
 
     public AuthService(UserRepository userRepository,
+                        RoleRepository roleRepository,
                         RevokedAccessTokenRepository revokedAccessTokenRepository,
                         PasswordEncoder passwordEncoder,
                         JwtService jwtService,
                         RefreshTokenService refreshTokenService,
                         PermissionService permissionService) {
         this.userRepository = userRepository;
+        this.roleRepository = roleRepository;
         this.revokedAccessTokenRepository = revokedAccessTokenRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
@@ -56,7 +62,9 @@ public class AuthService {
         if (userRepository.existsByEmail(request.email())) {
             throw new UserAlreadyExistsException("Ya existe una cuenta con ese email");
         }
-        User user = new User(request.email(), passwordEncoder.encode(request.password()), Set.of(Role.USER));
+        Role defaultRole = roleRepository.findByName(DEFAULT_ROLE)
+                .orElseThrow(() -> new IllegalStateException("Rol base '" + DEFAULT_ROLE + "' no existe; falta la migracion de seed"));
+        User user = new User(request.email(), passwordEncoder.encode(request.password()), Set.of(defaultRole));
         userRepository.save(user);
         return issueTokens(user);
     }
@@ -112,7 +120,7 @@ public class AuthService {
             if (revokedAccessTokenRepository.existsByJti(parsed.jti())) {
                 return VerifyResponse.invalid("revoked");
             }
-            return VerifyResponse.valid(parsed.userId(), parsed.email(), roleNames(parsed.roles()),
+            return VerifyResponse.valid(parsed.userId(), parsed.email(), parsed.roles(),
                     parsed.permissions(), parsed.expiresAt());
         } catch (ExpiredJwtException e) {
             return VerifyResponse.invalid("expired");
@@ -147,6 +155,6 @@ public class AuthService {
     }
 
     private Set<String> roleNames(Set<Role> roles) {
-        return roles.stream().map(Enum::name).collect(Collectors.toSet());
+        return roles.stream().map(Role::getName).collect(Collectors.toSet());
     }
 }

@@ -33,10 +33,10 @@ class PermissionServiceTest {
     @Test
     void resolvesPermissionsForRoles() {
         when(rolePermissionRepository.findByRoleIn(any())).thenReturn(List.of(
-                new RolePermission(Role.USER, "nexora-api", "GET", "/api/products/**"),
-                new RolePermission(Role.ADMIN, "nexora-api", "DELETE", "/api/products/**")));
+                new RolePermission(new Role("USER"), "nexora-api", "GET", "/api/products/**"),
+                new RolePermission(new Role("ADMIN"), "nexora-api", "DELETE", "/api/products/**")));
 
-        List<PermissionDto> permissions = permissionService.resolve(Set.of(Role.USER, Role.ADMIN));
+        List<PermissionDto> permissions = permissionService.resolve(Set.of(new Role("USER"), new Role("ADMIN")));
 
         assertThat(permissions).containsExactlyInAnyOrder(
                 new PermissionDto("nexora-api", "GET", "/api/products/**"),
@@ -46,10 +46,10 @@ class PermissionServiceTest {
     @Test
     void deduplicatesOverlappingPermissionsAcrossRoles() {
         when(rolePermissionRepository.findByRoleIn(any())).thenReturn(List.of(
-                new RolePermission(Role.USER, "nexora-api", "GET", "/api/products/**"),
-                new RolePermission(Role.ADMIN, "nexora-api", "GET", "/api/products/**")));
+                new RolePermission(new Role("USER"), "nexora-api", "GET", "/api/products/**"),
+                new RolePermission(new Role("ADMIN"), "nexora-api", "GET", "/api/products/**")));
 
-        List<PermissionDto> permissions = permissionService.resolve(Set.of(Role.USER, Role.ADMIN));
+        List<PermissionDto> permissions = permissionService.resolve(Set.of(new Role("USER"), new Role("ADMIN")));
 
         assertThat(permissions).containsExactly(new PermissionDto("nexora-api", "GET", "/api/products/**"));
     }
@@ -58,7 +58,7 @@ class PermissionServiceTest {
     void returnsEmptyListWhenNoPermissionsMatch() {
         when(rolePermissionRepository.findByRoleIn(any())).thenReturn(List.of());
 
-        List<PermissionDto> permissions = permissionService.resolve(Set.of(Role.USER));
+        List<PermissionDto> permissions = permissionService.resolve(Set.of(new Role("USER")));
 
         assertThat(permissions).isEmpty();
     }

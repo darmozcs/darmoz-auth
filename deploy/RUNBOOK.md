@@ -48,6 +48,51 @@ servidor antes de escribir esto:
 9. Verificar: `curl -sk https://darmozsc.duckdns.org/auth/actuator/health` y
    `docker logs darmoz-auth --tail 50`.
 
+## Panel de administración (`/admin/**`)
+
+darmoz-auth expone dos cosas bajo `/admin`:
+
+- `/admin/api/**` — API JSON (`AdminUserController`, `AdminRoleController`,
+  `AdminRolePermissionController`), protegida por rol `SUPER` (requiere JWT
+  válido con `roles` conteniendo `SUPER`).
+- `/admin/**` (todo lo demás) — el dashboard estático
+  (`src/main/resources/static/admin/`: `index.html` login,
+  `dashboard.html` + `app.js` el panel), servido por Spring Boot sin
+  autenticación a nivel de archivo (`permitAll` en `SecurityConfig`) — la
+  protección real es la del API que consume. El login rechaza (client-side)
+  cualquier usuario cuyo token no tenga el rol `SUPER`, aunque las
+  credenciales sean válidas para el resto del sistema.
+
+**No están expuestos públicamente**: la regla de Traefik
+(`deploy/compose.yaml`) excluye explícitamente `${DARMOZ_AUTH_PATH_PREFIX}/admin`
+del router público (`!PathPrefix`), así que
+`https://darmozsc.duckdns.org/auth/admin/**` devuelve 404 siempre — ni el
+dashboard ni el API son alcanzables desde internet.
+
+**Cómo llegar al dashboard entonces:**
+1. Dentro de la red Docker `data`: `http://darmoz-auth:8080/auth/admin/index.html`
+   desde cualquier contenedor que comparta esa red.
+2. Desde un navegador real: el compose publica el puerto solo en la IP de
+   LAN del servidor (`DARMOZ_AUTH_LAN_PORT`, default `8081`), igual patrón
+   que `services/postgres`. Desde la LAN: `http://192.168.1.23:8081/auth/admin/index.html`.
+   Desde afuera de casa, túnel SSH:
+   ```bash
+   ssh -L 8081:localhost:8081 darmoz@192.168.1.23
+   ```
+   y abrir `http://localhost:8081/auth/admin/index.html` en el navegador local.
+
+**Bootstrap del primer SUPER**: al arrancar, si `SUPER_ADMIN_EMAIL` y
+`SUPER_ADMIN_PASSWORD` están seteados en el `.env` y no existe ya un
+usuario con ese email, se crea automáticamente con rol `SUPER`
+(`SuperAdminBootstrap`, idempotente). Agregar esas dos variables (y
+`DARMOZ_AUTH_LAN_PORT`) al `.env` real del servidor antes del primer
+deploy con roles dinámicos / dashboard.
+
+Si se actualiza `compose.yaml` en un deploy ya existente (como este), hay
+que volver a copiarlo al servidor y hacer `docker compose up -d` para que
+Traefik y el puerto de LAN tomen la config nueva — un `git push` normal no
+alcanza, porque `compose.yaml` no viaja en la imagen de Docker.
+
 ## Nota de seguridad
 
 El acceso SSH a este servidor se configuró en esta sesión agregando una

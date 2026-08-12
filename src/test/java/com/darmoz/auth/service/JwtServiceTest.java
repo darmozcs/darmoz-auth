@@ -35,7 +35,7 @@ class JwtServiceTest {
         properties.setIssuer("darmoz-auth");
 
         jwtService = new JwtService(keyPair.getPrivate(), keyPair.getPublic(), properties);
-        user = new User(UUID.randomUUID(), "user@darmoz.com", "hash", Set.of(Role.USER, Role.ADMIN));
+        user = new User(UUID.randomUUID(), "user@darmoz.com", "hash", Set.of(new Role("USER"), new Role("ADMIN")));
     }
 
     @Test
@@ -49,7 +49,7 @@ class JwtServiceTest {
 
         assertThat(parsed.userId()).isEqualTo(user.getId());
         assertThat(parsed.email()).isEqualTo(user.getEmail());
-        assertThat(parsed.roles()).containsExactlyInAnyOrder(Role.USER, Role.ADMIN);
+        assertThat(parsed.roles()).containsExactlyInAnyOrder("USER", "ADMIN");
         assertThat(parsed.permissions()).containsExactlyInAnyOrderElementsOf(permissions);
         assertThat(parsed.jti()).isEqualTo(issued.jti());
     }

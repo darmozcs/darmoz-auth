@@ -11,4 +11,9 @@ import java.util.UUID;
 public interface RolePermissionRepository extends JpaRepository<RolePermission, UUID> {
 
     List<RolePermission> findByRoleIn(Collection<Role> roles);
+
+    boolean existsByRole_Id(UUID roleId);
+
+    boolean existsByRoleAndServiceAndHttpMethodAndEndpointPattern(
+            Role role, String service, String httpMethod, String endpointPattern);
 }
