@@ -63,23 +63,26 @@ darmoz-auth expone dos cosas bajo `/admin`:
   cualquier usuario cuyo token no tenga el rol `SUPER`, aunque las
   credenciales sean válidas para el resto del sistema.
 
-**No están expuestos públicamente**: la regla de Traefik
-(`deploy/compose.yaml`) excluye explícitamente `${DARMOZ_AUTH_PATH_PREFIX}/admin`
-del router público (`!PathPrefix`), así que
-`https://darmozsc.duckdns.org/auth/admin/**` devuelve 404 siempre — ni el
-dashboard ni el API son alcanzables desde internet.
+**Expuesto públicamente a propósito** (decisión explícita del usuario,
+2026-08-12): `https://darmozsc.duckdns.org/auth/admin/**` es alcanzable
+desde internet — tanto el dashboard estático como `/admin/api/**`. La
+única protección es la autenticación de la app (JWT + `hasRole("SUPER")`
+en `SecurityConfig`, ver `JwtAuthenticationFilter`), **no** aislamiento de
+red. Esto es un trade-off consciente por comodidad de acceso: cualquiera
+puede llegar al login, pero sin credenciales SUPER válidas no puede hacer
+nada en el API. Si en algún momento se quiere volver a aislar, alcanza con
+reagregar `&& !PathPrefix(\`${DARMOZ_AUTH_PATH_PREFIX}/admin\`)` a la regla
+del router en `deploy/compose.yaml`.
 
-**Cómo llegar al dashboard entonces:**
-1. Dentro de la red Docker `data`: `http://darmoz-auth:8080/auth/admin/index.html`
-   desde cualquier contenedor que comparta esa red.
-2. Desde un navegador real: el compose publica el puerto solo en la IP de
-   LAN del servidor (`DARMOZ_AUTH_LAN_PORT`, default `8081`), igual patrón
-   que `services/postgres`. Desde la LAN: `http://192.168.1.23:8081/auth/admin/index.html`.
-   Desde afuera de casa, túnel SSH:
-   ```bash
-   ssh -L 8081:localhost:8081 darmoz@192.168.1.23
-   ```
-   y abrir `http://localhost:8081/auth/admin/index.html` en el navegador local.
+**Vía de acceso alternativa (respaldo, no la única)**: el compose también
+publica el puerto en la IP de LAN del servidor (`DARMOZ_AUTH_LAN_PORT`,
+default `8081`), igual patrón que `services/postgres` — útil si
+Traefik/DNS fallan: `http://192.168.1.23:8081/auth/admin/index.html` desde
+la LAN, o por túnel SSH desde afuera:
+```bash
+ssh -L 8081:localhost:8081 darmoz@192.168.1.23
+```
+y abrir `http://localhost:8081/auth/admin/index.html`.
 
 **Bootstrap del primer SUPER**: al arrancar, si `SUPER_ADMIN_EMAIL` y
 `SUPER_ADMIN_PASSWORD` están seteados en el `.env` y no existe ya un

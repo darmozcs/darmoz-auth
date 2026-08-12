@@ -9,9 +9,9 @@ services:
     volumes:
       - ./keys:/app/keys:ro
     ports:
-      # Solo LAN, nunca 0.0.0.0: acceso al dashboard admin (/admin/**) que
-      # Traefik excluye a proposito (ver regla mas abajo). Igual patron que
-      # el acceso administrativo a services/postgres.
+      # Respaldo: acceso directo por LAN/tunel SSH si Traefik/DNS fallan.
+      # /admin/** ya es publico via Traefik (ver regla mas abajo), esto
+      # es solo una via alternativa, no la unica.
       - "192.168.1.23:${DARMOZ_AUTH_LAN_PORT:-8081}:8080"
     networks:
       - proxy
@@ -19,7 +19,7 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=proxy"
-      - "traefik.http.routers.darmoz-auth.rule=Host(`${DARMOZ_AUTH_DOMAIN}`) && PathPrefix(`${DARMOZ_AUTH_PATH_PREFIX}`) && !PathPrefix(`${DARMOZ_AUTH_PATH_PREFIX}/admin`)"
+      - "traefik.http.routers.darmoz-auth.rule=Host(`${DARMOZ_AUTH_DOMAIN}`) && PathPrefix(`${DARMOZ_AUTH_PATH_PREFIX}`)"
       - "traefik.http.routers.darmoz-auth.entrypoints=websecure"
       - "traefik.http.routers.darmoz-auth.tls.certresolver=letsencrypt"
       - "traefik.http.routers.darmoz-auth.middlewares=secure-headers@file"
