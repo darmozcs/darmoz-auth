@@ -1,24 +1,57 @@
 const AUTH_BASE = '/auth';
 const ADMIN_API = `${AUTH_BASE}/admin/api`;
 
-const session = JSON.parse(sessionStorage.getItem('darmoz_admin_session') || 'null');
+let session = JSON.parse(sessionStorage.getItem('darmoz_admin_session') || 'null');
 if (!session || !session.accessToken) {
   window.location.href = 'index.html';
 }
 
 document.getElementById('session-email').textContent = session.email || '';
 
-document.getElementById('logout-btn').addEventListener('click', () => {
+function goToLogin() {
   sessionStorage.removeItem('darmoz_admin_session');
   window.location.href = 'index.html';
-});
+}
+
+document.getElementById('logout-btn').addEventListener('click', goToLogin);
 
 function showGlobalError(message) {
   const el = document.getElementById('global-error');
   el.textContent = message || '';
 }
 
-async function authFetch(path, options = {}) {
+// El accessToken dura 12 min (default); si el admin deja el dashboard
+// abierto y después borra/edita algo, expira antes de que se haga el
+// request. Un solo refresh en vuelo compartido entre requests concurrentes
+// (no disparar /auth/refresh en paralelo con el mismo refreshToken: el
+// servidor lo trata como reuso y revoca todas las sesiones).
+let refreshPromise = null;
+
+async function refreshSession() {
+  if (!refreshPromise) {
+    refreshPromise = (async () => {
+      try {
+        const response = await fetch(`${AUTH_BASE}/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken: session.refreshToken }),
+        });
+        if (!response.ok) return false;
+        const auth = await response.json();
+        session = { ...session, accessToken: auth.accessToken, refreshToken: auth.refreshToken };
+        sessionStorage.setItem('darmoz_admin_session', JSON.stringify(session));
+        return true;
+      } catch (err) {
+        return false;
+      } finally {
+        refreshPromise = null;
+      }
+    })();
+  }
+  return refreshPromise;
+}
+
+async function authFetch(path, options = {}, isRetry = false) {
   const response = await fetch(path, {
     ...options,
     headers: {
@@ -27,9 +60,17 @@ async function authFetch(path, options = {}) {
     },
   });
 
+  // 401 = token ausente/inválido/expirado (posible arreglar con refresh).
+  // 403 = autenticado pero sin el rol SUPER: un refresh no lo va a arreglar.
+  if (response.status === 401 && !isRetry) {
+    const refreshed = await refreshSession();
+    if (refreshed) {
+      return authFetch(path, options, true);
+    }
+  }
+
   if (response.status === 401 || response.status === 403) {
-    sessionStorage.removeItem('darmoz_admin_session');
-    window.location.href = 'index.html';
+    goToLogin();
     throw new Error('sesion invalida');
   }
   return response;

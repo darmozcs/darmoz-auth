@@ -51,14 +51,28 @@ public class SecurityConfig {
 
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
-        CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(List.of("https://darmozsc.duckdns.org"));
-        configuration.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
-        configuration.setAllowedHeaders(List.of("Authorization", "Content-Type"));
-        configuration.setAllowCredentials(false);
+        // API pública (ver API_GUIDE.md sección 7): solo GET/POST/OPTIONS.
+        CorsConfiguration publicApiConfig = new CorsConfiguration();
+        publicApiConfig.setAllowedOrigins(List.of("https://darmozsc.duckdns.org"));
+        publicApiConfig.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
+        publicApiConfig.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        publicApiConfig.setAllowCredentials(false);
+
+        // Dashboard admin (/admin/api/**): necesita PUT/PATCH/DELETE (editar
+        // roles, habilitar/deshabilitar, borrar). El browser manda header
+        // Origin incluso en llamadas same-origin para métodos no-GET, así
+        // que el filtro de CORS de Spring igual evalúa estos requests contra
+        // la lista de métodos permitidos — si no está el método acá, lo
+        // rechaza con 403 antes de llegar al controller.
+        CorsConfiguration adminApiConfig = new CorsConfiguration();
+        adminApiConfig.setAllowedOrigins(List.of("https://darmozsc.duckdns.org"));
+        adminApiConfig.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        adminApiConfig.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        adminApiConfig.setAllowCredentials(false);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", configuration);
+        source.registerCorsConfiguration("/admin/api/**", adminApiConfig);
+        source.registerCorsConfiguration("/**", publicApiConfig);
         return source;
     }
 }
