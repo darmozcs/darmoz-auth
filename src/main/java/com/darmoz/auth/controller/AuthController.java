@@ -58,6 +58,12 @@ public class AuthController {
         return ResponseEntity.ok(authService.verify(extractBearerToken(authorizationHeader)));
     }
 
+    @PostMapping("/disable")
+    public ResponseEntity<Void> disable(@RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader) {
+        authService.disableCurrentUser(extractBearerToken(authorizationHeader));
+        return ResponseEntity.noContent().build();
+    }
+
     private String extractBearerToken(String authorizationHeader) {
         if (authorizationHeader == null || !authorizationHeader.startsWith(BEARER_PREFIX)) {
             return null;

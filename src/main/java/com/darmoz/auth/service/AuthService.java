@@ -10,6 +10,7 @@ import com.darmoz.auth.entity.Role;
 import com.darmoz.auth.entity.RevokedAccessToken;
 import com.darmoz.auth.entity.User;
 import com.darmoz.auth.exception.InvalidCredentialsException;
+import com.darmoz.auth.exception.NotFoundException;
 import com.darmoz.auth.exception.UserAlreadyExistsException;
 import com.darmoz.auth.repository.RevokedAccessTokenRepository;
 import com.darmoz.auth.repository.RoleRepository;
@@ -24,6 +25,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -59,9 +61,17 @@ public class AuthService {
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
-        if (userRepository.existsByEmail(request.email())) {
-            throw new UserAlreadyExistsException("Ya existe una cuenta con ese email");
+        Optional<User> existing = userRepository.findByEmail(request.email());
+        if (existing.isPresent()) {
+            User user = existing.get();
+            if (user.isEnabled()) {
+                throw new UserAlreadyExistsException("Ya existe una cuenta con ese email");
+            }
+            user.setEnabled(true);
+            userRepository.save(user);
+            return issueTokens(user);
         }
+
         Role defaultRole = roleRepository.findByName(DEFAULT_ROLE)
                 .orElseThrow(() -> new IllegalStateException("Rol base '" + DEFAULT_ROLE + "' no existe; falta la migracion de seed"));
         User user = new User(request.email(), passwordEncoder.encode(request.password()), Set.of(defaultRole));
@@ -129,6 +139,19 @@ public class AuthService {
         } catch (JwtException e) {
             return VerifyResponse.invalid("malformed");
         }
+    }
+
+    @Transactional
+    public void disableCurrentUser(String accessToken) {
+        JwtService.ParsedAccessToken parsed = jwtService.parse(accessToken);
+        User user = userRepository.findById(parsed.userId())
+                .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
+
+        user.setEnabled(false);
+        userRepository.save(user);
+
+        refreshTokenService.revokeAllForUser(user.getId());
+        blockAccessToken(parsed.jti(), parsed.expiresAt());
     }
 
     private void blockAccessToken(UUID jti, Instant expiresAt) {
