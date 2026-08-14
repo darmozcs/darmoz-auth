@@ -366,12 +366,14 @@ function renderApplicationDropdowns() {
     .join('');
   document.getElementById('user-application').innerHTML = options;
   document.getElementById('role-application').innerHTML = options;
+  document.getElementById('audit-filter-application').innerHTML = `<option value="">Todas</option>${options}`;
 }
 
 function renderApplicationsTable() {
   const body = document.getElementById('applications-table-body');
   body.innerHTML = applicationsCache.map((app) => `
     <tr data-application-row="${app.id}">
+      <td>${escapeHtml(app.id)}</td>
       <td>${escapeHtml(app.serviceName)}</td>
       <td>${escapeHtml(app.name)}</td>
       <td>${escapeHtml(app.description)}</td>
@@ -404,6 +406,7 @@ function startApplicationEdit(appId) {
   const app = applicationsCache.find((a) => a.id === appId);
   const row = document.querySelector(`tr[data-application-row="${appId}"]`);
   row.innerHTML = `
+    <td>${escapeHtml(app.id)}</td>
     <td><input type="text" id="edit-app-service-${appId}" value="${escapeHtml(app.serviceName)}"></td>
     <td><input type="text" id="edit-app-name-${appId}" value="${escapeHtml(app.name)}"></td>
     <td><input type="text" id="edit-app-description-${appId}" value="${escapeHtml(app.description)}"></td>
@@ -450,12 +453,97 @@ document.getElementById('application-form').addEventListener('submit', async (ev
   }
 });
 
+let auditPage = 0;
+let auditTotalPages = 0;
+const AUDIT_PAGE_SIZE = 20;
+
+async function loadAuditLog() {
+  const action = document.getElementById('audit-filter-action').value;
+  const applicationId = document.getElementById('audit-filter-application').value;
+  const email = document.getElementById('audit-filter-email').value;
+  const from = document.getElementById('audit-filter-from').value;
+  const to = document.getElementById('audit-filter-to').value;
+
+  const params = new URLSearchParams({ page: auditPage, size: AUDIT_PAGE_SIZE });
+  if (action) params.set('action', action);
+  if (applicationId) params.set('applicationId', applicationId);
+  if (email) params.set('email', email);
+  if (from) params.set('from', from);
+  if (to) params.set('to', to);
+
+  try {
+    const result = await authFetchJson(`${ADMIN_API}/audit-log?${params.toString()}`);
+    auditTotalPages = result.totalPages;
+    renderAuditTable(result.content);
+    renderAuditPagination();
+    showGlobalError('');
+  } catch (err) {
+    showGlobalError(err.message);
+  }
+}
+
+function renderAuditTable(entries) {
+  const body = document.getElementById('audit-table-body');
+  body.innerHTML = entries.map((entry) => `
+    <tr>
+      <td>${escapeHtml(entry.occurredAt)}</td>
+      <td>${escapeHtml(entry.action)}</td>
+      <td><span class="badge ${entry.result === 'SUCCESS' ? 'badge-success' : 'badge-failure'}">${escapeHtml(entry.result)}${entry.failureReason ? ` — ${escapeHtml(entry.failureReason)}` : ''}</span></td>
+      <td>${escapeHtml(entry.applicationName)}</td>
+      <td>${escapeHtml(entry.userEmail)}</td>
+      <td>${escapeHtml(entry.origin)}</td>
+      <td>${escapeHtml(entry.host)}</td>
+      <td>${escapeHtml(entry.userAgent)}</td>
+      <td>${escapeHtml(entry.referer)}</td>
+    </tr>
+  `).join('');
+}
+
+function renderAuditPagination() {
+  const info = document.getElementById('audit-page-info');
+  const totalLabel = auditTotalPages === 0 ? 0 : auditTotalPages;
+  info.textContent = `Página ${auditPage + 1} de ${totalLabel}`;
+  document.getElementById('audit-prev-page').disabled = auditPage <= 0;
+  document.getElementById('audit-next-page').disabled = auditPage + 1 >= auditTotalPages;
+}
+
+document.getElementById('audit-prev-page').addEventListener('click', () => {
+  if (auditPage > 0) {
+    auditPage -= 1;
+    loadAuditLog();
+  }
+});
+
+document.getElementById('audit-next-page').addEventListener('click', () => {
+  if (auditPage + 1 < auditTotalPages) {
+    auditPage += 1;
+    loadAuditLog();
+  }
+});
+
+['audit-filter-action', 'audit-filter-application', 'audit-filter-from', 'audit-filter-to'].forEach((id) => {
+  document.getElementById(id).addEventListener('change', () => {
+    auditPage = 0;
+    loadAuditLog();
+  });
+});
+
+let auditEmailFilterTimeout = null;
+document.getElementById('audit-filter-email').addEventListener('input', () => {
+  clearTimeout(auditEmailFilterTimeout);
+  auditEmailFilterTimeout = setTimeout(() => {
+    auditPage = 0;
+    loadAuditLog();
+  }, 300);
+});
+
 (async function init() {
   try {
     await loadApplications();
     await loadRoles();
     await loadUsers();
     await loadPermissions();
+    await loadAuditLog();
   } catch (err) {
     showGlobalError(err.message);
   }

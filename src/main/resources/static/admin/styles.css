@@ -202,3 +202,13 @@ tr:last-child td {
   font-size: 0.75rem;
   margin: 0 0.15rem 0.15rem 0;
 }
+
+.badge-success {
+  background: #e3f6e8;
+  color: #1f8a4c;
+}
+
+.badge-failure {
+  background: #fdecec;
+  color: #d63b3b;
+}

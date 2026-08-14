@@ -8,9 +8,13 @@ import com.darmoz.auth.dto.response.AuthResponse;
 import com.darmoz.auth.dto.response.PermissionDto;
 import com.darmoz.auth.dto.response.VerifyResponse;
 import com.darmoz.auth.entity.Application;
+import com.darmoz.auth.entity.AuditAction;
+import com.darmoz.auth.entity.AuditResult;
+import com.darmoz.auth.entity.AuthAuditLog;
 import com.darmoz.auth.entity.Role;
 import com.darmoz.auth.entity.RolePermission;
 import com.darmoz.auth.repository.ApplicationRepository;
+import com.darmoz.auth.repository.AuthAuditLogRepository;
 import com.darmoz.auth.repository.RolePermissionRepository;
 import com.darmoz.auth.repository.RoleRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -25,6 +29,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -43,6 +48,9 @@ class AuthControllerIT extends AbstractIntegrationTest {
 
     @Autowired
     private ApplicationRepository applicationRepository;
+
+    @Autowired
+    private AuthAuditLogRepository authAuditLogRepository;
 
     private PermissionDto expectedPermission;
     private UUID applicationId;
@@ -142,6 +150,16 @@ class AuthControllerIT extends AbstractIntegrationTest {
                 "/auth/refresh", HttpMethod.POST, new HttpEntity<>(new RefreshRequest(freshTokens.refreshToken()), jsonHeaders()),
                 String.class);
         assertThat(refreshAfterLogoutResponse.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+
+        List<AuthAuditLog> loginSuccesses = authAuditLogRepository.findAll().stream()
+                .filter(entry -> entry.getAction() == AuditAction.LOGIN && entry.getResult() == AuditResult.SUCCESS)
+                .filter(entry -> email.equals(entry.getUserEmail()))
+                .toList();
+        assertThat(loginSuccesses).isNotEmpty();
+
+        boolean anyFailureRecorded = authAuditLogRepository.findAll().stream()
+                .anyMatch(entry -> entry.getResult() == AuditResult.FAILURE);
+        assertThat(anyFailureRecorded).isTrue();
     }
 
     private HttpHeaders jsonHeaders() {

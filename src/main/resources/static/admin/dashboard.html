@@ -21,6 +21,7 @@
   <button type="button" class="tab-btn" data-tab="roles">Roles</button>
   <button type="button" class="tab-btn" data-tab="permissions">Permisos</button>
   <button type="button" class="tab-btn" data-tab="applications">Aplicaciones</button>
+  <button type="button" class="tab-btn" data-tab="audit">Auditoría</button>
 </nav>
 
 <main>
@@ -134,7 +135,7 @@
   <section id="panel-applications" class="panel">
     <table>
       <thead>
-        <tr><th>Servicio</th><th>Nombre</th><th>Descripción</th><th>Acciones</th></tr>
+        <tr><th>ID</th><th>Servicio</th><th>Nombre</th><th>Descripción</th><th>Acciones</th></tr>
       </thead>
       <tbody id="applications-table-body"></tbody>
     </table>
@@ -157,6 +158,55 @@
           <button type="submit">Crear aplicación</button>
         </div>
       </form>
+    </div>
+  </section>
+
+  <section id="panel-audit" class="panel">
+    <div class="form-card" style="margin-bottom:1.5rem;">
+      <div class="form-row">
+        <div>
+          <label for="audit-filter-action">Acción</label>
+          <select id="audit-filter-action">
+            <option value="">Todas</option>
+            <option value="LOGIN">LOGIN</option>
+            <option value="LOGOUT">LOGOUT</option>
+            <option value="REGISTER">REGISTER</option>
+            <option value="REFRESH">REFRESH</option>
+            <option value="VERIFY">VERIFY</option>
+            <option value="DISABLE">DISABLE</option>
+          </select>
+        </div>
+        <div>
+          <label for="audit-filter-application">Aplicación</label>
+          <select id="audit-filter-application"><option value="">Todas</option></select>
+        </div>
+        <div>
+          <label for="audit-filter-email">Email</label>
+          <input type="text" id="audit-filter-email" placeholder="usuario@ejemplo.com">
+        </div>
+        <div>
+          <label for="audit-filter-from">Desde</label>
+          <input type="date" id="audit-filter-from">
+        </div>
+        <div>
+          <label for="audit-filter-to">Hasta</label>
+          <input type="date" id="audit-filter-to">
+        </div>
+      </div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Hora</th><th>Acción</th><th>Resultado</th><th>Aplicación</th><th>Email</th>
+          <th>Origin</th><th>Host</th><th>User-Agent</th><th>Referer</th>
+        </tr>
+      </thead>
+      <tbody id="audit-table-body"></tbody>
+    </table>
+    <div class="form-actions" style="display:flex;align-items:center;gap:0.75rem;">
+      <button type="button" class="secondary" id="audit-prev-page">‹ Anterior</button>
+      <span id="audit-page-info" style="font-size:0.85rem;color:#4a5069;"></span>
+      <button type="button" class="secondary" id="audit-next-page">Siguiente ›</button>
     </div>
   </section>
 </main>
