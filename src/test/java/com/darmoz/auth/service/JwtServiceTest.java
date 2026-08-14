@@ -2,6 +2,7 @@ package com.darmoz.auth.service;
 
 import com.darmoz.auth.config.JwtProperties;
 import com.darmoz.auth.dto.response.PermissionDto;
+import com.darmoz.auth.entity.Application;
 import com.darmoz.auth.entity.Role;
 import com.darmoz.auth.entity.User;
 import io.jsonwebtoken.ExpiredJwtException;
@@ -35,7 +36,9 @@ class JwtServiceTest {
         properties.setIssuer("darmoz-auth");
 
         jwtService = new JwtService(keyPair.getPrivate(), keyPair.getPublic(), properties);
-        user = new User(UUID.randomUUID(), "user@darmoz.com", "hash", Set.of(new Role("USER"), new Role("ADMIN")));
+        Application application = new Application(UUID.randomUUID(), "test-service", "test-app", null);
+        user = new User(UUID.randomUUID(), "user@darmoz.com", "hash",
+                Set.of(new Role("USER", application), new Role("ADMIN", application)), application);
     }
 
     @Test
@@ -51,6 +54,7 @@ class JwtServiceTest {
         assertThat(parsed.email()).isEqualTo(user.getEmail());
         assertThat(parsed.roles()).containsExactlyInAnyOrder("USER", "ADMIN");
         assertThat(parsed.permissions()).containsExactlyInAnyOrderElementsOf(permissions);
+        assertThat(parsed.applicationId()).isEqualTo(user.getApplication().getId());
         assertThat(parsed.jti()).isEqualTo(issued.jti());
     }
 

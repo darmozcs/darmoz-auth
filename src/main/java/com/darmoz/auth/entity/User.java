@@ -7,6 +7,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.JoinTable;
 import jakarta.persistence.ManyToMany;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import org.hibernate.annotations.UuidGenerator;
 
@@ -23,7 +24,7 @@ public class User {
     @UuidGenerator
     private UUID id;
 
-    @Column(nullable = false, unique = true)
+    @Column(nullable = false)
     private String email;
 
     @Column(name = "password_hash", nullable = false)
@@ -31,6 +32,10 @@ public class User {
 
     @Column(nullable = false)
     private boolean enabled = true;
+
+    @ManyToOne(fetch = FetchType.EAGER)
+    @JoinColumn(name = "application_id", nullable = false)
+    private Application application;
 
     @ManyToMany(fetch = FetchType.EAGER)
     @JoinTable(name = "auth_user_roles",
@@ -47,15 +52,16 @@ public class User {
     protected User() {
     }
 
-    public User(String email, String passwordHash, Set<Role> roles) {
+    public User(String email, String passwordHash, Set<Role> roles, Application application) {
         this.email = email;
         this.passwordHash = passwordHash;
         this.roles = roles;
+        this.application = application;
     }
 
     /** Reconstruye una instancia detached con id conocido (tests, mapeos). */
-    public User(UUID id, String email, String passwordHash, Set<Role> roles) {
-        this(email, passwordHash, roles);
+    public User(UUID id, String email, String passwordHash, Set<Role> roles, Application application) {
+        this(email, passwordHash, roles, application);
         this.id = id;
     }
 
@@ -89,6 +95,10 @@ public class User {
 
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public Application getApplication() {
+        return application;
     }
 
     public Set<Role> getRoles() {

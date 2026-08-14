@@ -2,10 +2,7 @@ package com.darmoz.auth.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import org.hibernate.annotations.UuidGenerator;
 
@@ -14,36 +11,37 @@ import java.util.Objects;
 import java.util.UUID;
 
 @Entity
-@Table(name = "auth_roles")
-public class Role {
+@Table(name = "auth_applications")
+public class Application {
 
     @Id
     @UuidGenerator
     private UUID id;
 
-    @Column(nullable = false)
+    @Column(name = "service_name", nullable = false)
+    private String serviceName;
+
+    @Column(nullable = false, unique = true)
     private String name;
 
     private String description;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "application_id", nullable = false)
-    private Application application;
-
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
-    protected Role() {
+    protected Application() {
     }
 
-    public Role(String name, String description, Application application) {
+    public Application(String serviceName, String name, String description) {
+        this.serviceName = serviceName;
         this.name = name;
         this.description = description;
-        this.application = application;
     }
 
-    public Role(String name, Application application) {
-        this(name, null, application);
+    /** Reconstruye una instancia detached con id conocido (tests, mapeos). */
+    public Application(UUID id, String serviceName, String name, String description) {
+        this(serviceName, name, description);
+        this.id = id;
     }
 
     @jakarta.persistence.PrePersist
@@ -55,6 +53,10 @@ public class Role {
         return id;
     }
 
+    public String getServiceName() {
+        return serviceName;
+    }
+
     public String getName() {
         return name;
     }
@@ -63,8 +65,12 @@ public class Role {
         return description;
     }
 
-    public Application getApplication() {
-        return application;
+    public void setServiceName(String serviceName) {
+        this.serviceName = serviceName;
+    }
+
+    public void setName(String name) {
+        this.name = name;
     }
 
     public void setDescription(String description) {
@@ -80,7 +86,7 @@ public class Role {
         if (this == o) {
             return true;
         }
-        if (!(o instanceof Role other)) {
+        if (!(o instanceof Application other)) {
             return false;
         }
         return id != null && id.equals(other.id);

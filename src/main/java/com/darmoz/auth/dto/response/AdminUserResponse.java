@@ -12,13 +12,16 @@ public record AdminUserResponse(
         UUID id,
         String email,
         boolean enabled,
+        UUID applicationId,
+        String applicationName,
         Set<String> roles,
         OffsetDateTime createdAt,
         OffsetDateTime updatedAt
 ) {
     public static AdminUserResponse of(User user) {
         Set<String> roleNames = user.getRoles().stream().map(Role::getName).collect(Collectors.toSet());
-        return new AdminUserResponse(user.getId(), user.getEmail(), user.isEnabled(), roleNames,
+        return new AdminUserResponse(user.getId(), user.getEmail(), user.isEnabled(),
+                user.getApplication().getId(), user.getApplication().getName(), roleNames,
                 user.getCreatedAt(), user.getUpdatedAt());
     }
 }

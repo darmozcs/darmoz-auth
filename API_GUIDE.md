@@ -19,6 +19,11 @@ relativos a esa base — ej. `POST /auth/login`.
 
 Content-Type de request y response: `application/json` en todos los casos.
 
+**Multi-tenant desde esta versión:** todo consumidor (frontend, app móvil,
+otro backend) representa una **Aplicación** dentro de darmoz-auth, y tiene
+que mandar un header `API_ID` con el UUID de esa aplicación en **todos** los
+endpoints de la sección 6. Ver sección 3 para el detalle completo.
+
 ---
 
 ## 2. Modelo de autenticación
@@ -30,7 +35,7 @@ Dos tipos de token, devueltos juntos en cada login/registro/refresh:
   `Authorization: Bearer <accessToken>` de cada request a un recurso
   protegido. Es **autocontenido**: incluye el user id, email, roles y
   permisos ya resueltos, así que un servicio consumidor puede leerlo sin
-  necesariamente llamar de vuelta a darmoz-auth (ver sección 5).
+  necesariamente llamar de vuelta a darmoz-auth (ver sección 6).
 - **`refreshToken`** — string opaco (no es un JWT, no se puede decodificar),
   de vida larga (default **30 días**, configurable). Se usa una sola vez:
   cada `POST /refresh` lo consume y devuelve un `accessToken` nuevo **y un
@@ -53,7 +58,43 @@ llamadas simultáneas son "el mismo" intento legítimo.
 
 ---
 
-## 3. Estructura del Access Token (JWT)
+## 3. Aplicaciones y el header `API_ID`
+
+darmoz-auth es un servicio de auth **compartido entre varias aplicaciones
+consumidoras** (tabla `auth_applications`: id, nombre de servicio, nombre,
+descripción). Cada `Usuario` y cada `Rol` pertenecen a una única Aplicación
+— el mismo email puede existir como cuentas completamente independientes en
+dos aplicaciones distintas.
+
+**Cómo conseguir el `API_ID`:** un SUPER admin crea la aplicación desde el
+panel (`/auth/admin` → pestaña "Aplicaciones") y comparte el UUID generado
+con el equipo que integra el cliente. No hay forma de auto-registrar una
+aplicación nueva vía API pública — es un paso manual de admin.
+
+**Uso:** todos los endpoints de la sección 6 (`register`, `login`,
+`refresh`, `verify`, `logout`, `disable`) requieren el header:
+
+```
+API_ID: <uuid-de-tu-aplicacion>
+```
+
+El servidor valida dos cosas en cada llamada:
+1. Que el `API_ID` corresponda a una aplicación existente (si no, `404`).
+2. Que el usuario/token involucrado pertenezca a **esa misma** aplicación
+   (si no, `403` con `message` describiendo el mismatch — excepto en
+   `/verify`, que nunca tira error HTTP: ver su sección para el detalle).
+
+Si el header falta directamente, la respuesta es `400` (ver sección 7,
+formato de error genérico).
+
+**Roles y permisos también son por-aplicación:** un rol como `USER` en la
+Aplicación A es una fila completamente distinta de un rol `USER` en la
+Aplicación B — mismo nombre, sin relación entre sí. Los permisos
+(`auth_role_permissions`) heredan la aplicación de su rol.
+
+---
+
+## 4. Estructura del Access Token (JWT)
 
 Algoritmo: **RS256** (RSASSA-PKCS1-v1_5 + SHA-256), asimétrico. darmoz-auth
 firma con su llave **privada**; cualquier consumidor valida con la llave
@@ -70,6 +111,7 @@ firma con su llave **privada**; cualquier consumidor valida con la llave
   "permissions": [
     { "service": "nexora-api", "method": "GET", "path": "/api/products/**" }
   ],
+  "applicationId": "22222222-2222-2222-2222-222222222222",
   "typ": "access",
   "iss": "darmoz-auth",
   "iat": 1770000000,
@@ -82,8 +124,9 @@ firma con su llave **privada**; cualquier consumidor valida con la llave
 | `jti` | ID único del token (UUID). Se usa para poder revocarlo individualmente en logout. |
 | `sub` | UUID del usuario (`User.id`). |
 | `email` | Email del usuario. |
-| `roles` | Array de roles (`USER`, `ADMIN`; ver sección 4). |
-| `permissions` | Lista de permisos resueltos **al momento de emitir el token** (ver sección 4). Cambios de permisos en la base no afectan tokens ya emitidos hasta el próximo `login`/`refresh`. |
+| `roles` | Array de roles (`USER`, `ADMIN`; ver sección 5). |
+| `permissions` | Lista de permisos resueltos **al momento de emitir el token** (ver sección 5). Cambios de permisos en la base no afectan tokens ya emitidos hasta el próximo `login`/`refresh`. |
+| `applicationId` | UUID de la Aplicación a la que pertenece el usuario (ver sección 3). Tokens emitidos antes de que este claim existiera no lo tienen. |
 | `typ` | Siempre `"access"` (reservado por si en el futuro se emiten otros tipos de token). |
 | `iss` | Issuer, configurable (default `darmoz-auth`). |
 | `iat` / `exp` | Unix timestamp (segundos) de emisión / expiración. |
@@ -162,11 +205,14 @@ Jws<Claims> jws = Jwts.parser()
 
 ---
 
-## 4. Roles y permisos
+## 5. Roles y permisos
 
-- **Roles**: enum fijo, actualmente `USER` y `ADMIN` (`com.darmoz.auth.entity.Role`).
-  Todo usuario nuevo (`/register`) se crea con `USER` únicamente — no hay
-  forma de auto-asignarse `ADMIN` vía API.
+- **Roles**: dinámicos, gestionados desde el panel admin, y **scoped a una
+  Aplicación** (ver sección 3) — el nombre de un rol es único dentro de su
+  aplicación, no globalmente. Toda Aplicación nueva se crea con un rol base
+  `USER`; todo usuario nuevo (`/register`) se crea con ese `USER` de su
+  aplicación únicamente — no hay forma de auto-asignarse otro rol vía API
+  pública.
 - **Permisos**: tabla `auth_role_permissions`, mapea `role → (service,
   http_method, endpoint_pattern)`. Representa qué puede hacer cada rol en
   **otros** servicios (no en darmoz-auth mismo). Ejemplo de fila:
@@ -181,23 +227,30 @@ Jws<Claims> jws = Jwts.parser()
 
 - Los permisos de un usuario son la **unión deduplicada** de los permisos de
   todos sus roles, resuelta en el momento del login/register/refresh y
-  embebida en el JWT como el claim `permissions` (ver sección 3). Un
+  embebida en el JWT como el claim `permissions` (ver sección 4). Un
   servicio consumidor que reciba el token puede autorizar la request
   localmente comparando `(service, method, path)` contra su propio nombre
   de servicio + el método/path de la request entrante, **sin llamar a
   darmoz-auth**.
-- Alta de nuevas filas en `auth_role_permissions` (o de nuevos roles) es
-  actualmente solo vía acceso directo a la base — no hay endpoint de admin
-  para gestionarlos.
+- Alta de roles y de filas en `auth_role_permissions` es vía el panel admin
+  (`/auth/admin`, pestañas "Roles" y "Permisos"), no hay endpoint público.
 
 ---
 
-## 5. Endpoints
+## 6. Endpoints
+
+Todos requieren el header `API_ID` (sección 3), además de lo que se detalla
+en cada uno.
 
 ### `POST /auth/register`
 
-Crea un usuario nuevo con rol `USER` y devuelve tokens (equivalente a
-registrarse + loguearse en un solo paso).
+Crea un usuario nuevo con el rol `USER` **de la aplicación indicada en
+`API_ID`** y devuelve tokens (equivalente a registrarse + loguearse en un
+solo paso). Si el email ya existe en esa aplicación pero está deshabilitado
+(`enabled=false`), en vez de rechazarlo lo **reactiva** (`enabled=true`) sin
+tocar su password ni sus roles.
+
+**Headers:** `API_ID: <uuid>` (requerido).
 
 **Body:**
 ```json
@@ -228,12 +281,15 @@ entre 8 y 100 caracteres.
 **Errores:**
 | Status | Cuándo | Body |
 |---|---|---|
-| `400` | email inválido / password fuera de rango / campos vacíos | `{"message": "email: must be a well-formed email address; password: size must be between 8 and 100", ...}` |
-| `409` | el email ya está registrado | `{"message": "Ya existe una cuenta con ese email", ...}` |
+| `400` | falta el header `API_ID`, o email inválido / password fuera de rango / campos vacíos | `{"message": "email: must be a well-formed email address; password: size must be between 8 and 100", ...}` |
+| `404` | `API_ID` no corresponde a ninguna aplicación (o no es un UUID válido) | `{"message": "Aplicacion no encontrada", ...}` |
+| `409` | el email ya está registrado **y habilitado** en esa aplicación | `{"message": "Ya existe una cuenta con ese email", ...}` |
 
 ---
 
 ### `POST /auth/login`
+
+**Headers:** `API_ID: <uuid>` (requerido).
 
 **Body:**
 ```json
@@ -245,11 +301,13 @@ entre 8 y 100 caracteres.
 **Errores:**
 | Status | Cuándo | Body |
 |---|---|---|
-| `400` | campos vacíos | validación |
-| `401` | email no existe, password incorrecta, o cuenta deshabilitada (`enabled=false`) | `{"message": "Email o password invalidos", ...}` |
+| `400` | falta `API_ID`, o campos vacíos | validación |
+| `404` | `API_ID` no corresponde a ninguna aplicación | `{"message": "Aplicacion no encontrada", ...}` |
+| `401` | email no existe **en esa aplicación**, password incorrecta, o cuenta deshabilitada (`enabled=false`) | `{"message": "Email o password invalidos", ...}` |
 
 Nota: el mensaje es idéntico para "no existe", "password mal" y "cuenta
-deshabilitada" — deliberado, para no filtrar si un email está registrado.
+deshabilitada" — deliberado, para no filtrar si un email está registrado. Un
+email registrado en **otra** aplicación tampoco se distingue de "no existe".
 
 ---
 
@@ -259,6 +317,8 @@ Rota el refresh token (revoca el usado, emite uno nuevo) y emite un access
 token nuevo con roles/permisos **recalculados en ese momento** (útil si
 cambiaron los roles del usuario desde el login original).
 
+**Headers:** `API_ID: <uuid>` (requerido).
+
 **Body:**
 ```json
 { "refreshToken": "8f3a2b1c4d5e4f6a8b7c9d0e1f2a3b4c..." }
@@ -267,12 +327,14 @@ cambiaron los roles del usuario desde el login original).
 **200 OK:** `AuthResponse` completo, con `accessToken` y `refreshToken`
 **nuevos**. El `refreshToken` recibido queda inválido inmediatamente.
 
-**Errores (todos 401):**
-| Body `message` | Causa |
-|---|---|
-| `Refresh token invalido` | no existe / no corresponde a ningún hash en la base |
-| `Refresh token expirado` | pasó el TTL (default 30 días) |
-| `Refresh token reusado; se revocaron todas las sesiones` | el token ya había sido usado antes → se revocaron **todas** las sesiones activas del usuario, hay que loguear de nuevo |
+**Errores:**
+| Status | Body `message` | Causa |
+|---|---|---|
+| `404` | `Aplicacion no encontrada` | `API_ID` inválido/inexistente |
+| `403` | `El refresh token no pertenece a la aplicacion indicada` | el refresh token es válido pero es de un usuario de **otra** aplicación — el token rotado se revoca automáticamente antes de responder, así que no queda ninguna credencial usable filtrada |
+| `401` | `Refresh token invalido` | no existe / no corresponde a ningún hash en la base |
+| `401` | `Refresh token expirado` | pasó el TTL (default 30 días) |
+| `401` | `Refresh token reusado; se revocaron todas las sesiones` | el token ya había sido usado antes → se revocaron **todas** las sesiones activas del usuario, hay que loguear de nuevo |
 
 ---
 
@@ -282,9 +344,13 @@ Revoca el refresh token (body) y, si se manda el access token, también lo
 agrega a la blocklist de revocados (por `jti`) para que `/verify` y
 cualquier chequeo de revocación lo vean como inválido de inmediato.
 
-**Headers:** `Authorization: Bearer <accessToken>` — **opcional pero
-recomendado**. Si no se manda, solo se revoca el refresh token; el access
-token sigue siendo válido (en validación local) hasta que expira solo.
+**Headers:**
+- `API_ID: <uuid>` — requerido (solo se valida que la aplicación exista;
+  **no** se compara contra el usuario dueño del token, a diferencia del
+  resto de los endpoints — ver nota abajo).
+- `Authorization: Bearer <accessToken>` — **opcional pero recomendado**. Si
+  no se manda, solo se revoca el refresh token; el access token sigue
+  siendo válido (en validación local) hasta que expira solo.
 
 **Body:**
 ```json
@@ -294,24 +360,35 @@ token sigue siendo válido (en validación local) hasta que expira solo.
 **204 No Content** — siempre, sea el token válido, inválido o inexistente
 (operación idempotente, no filtra información).
 
-**Errores:** solo `400` si `refreshToken` viene vacío/ausente.
+**Errores:** `400` si `refreshToken` viene vacío/ausente o si falta
+`API_ID`; `404` si `API_ID` no corresponde a ninguna aplicación.
+
+> **Nota sobre `API_ID` en logout:** a diferencia de los demás endpoints,
+> acá no se rechaza un mismatch de aplicación — es una decisión deliberada
+> (revocar una sesión de la que ya se posee el secreto no representa riesgo
+> cross-tenant, y el `accessToken` es opcional en este endpoint).
 
 ---
 
 ### `POST /auth/verify`
 
-Valida un access token del lado del servidor: firma, expiración, y si está
-en la blocklist de revocados. Pensado para que otro servicio delegue la
-validación completa (incluida revocación) en darmoz-auth en vez de validar
-localmente.
+Valida un access token del lado del servidor: firma, expiración, si está en
+la blocklist de revocados, **y si pertenece a la aplicación indicada en
+`API_ID`**. Pensado para que otro servicio delegue la validación completa
+(incluida revocación) en darmoz-auth en vez de validar localmente.
 
-**Headers:** `Authorization: Bearer <accessToken>` — opcional; si falta,
-responde `valid: false, reason: "missing_token"`.
+**Headers:**
+- `API_ID: <uuid>` — requerido. Si no corresponde a ninguna aplicación,
+  responde `404` (a diferencia del resto de los chequeos de este endpoint,
+  que nunca tiran error HTTP — ver abajo).
+- `Authorization: Bearer <accessToken>` — opcional; si falta, responde
+  `valid: false, reason: "missing_token"`.
 
 Sin body.
 
-**200 OK — siempre** (este endpoint **nunca** devuelve 401/403 por un token
-inválido; el resultado va en el body):
+**200 OK** (asumiendo que `API_ID` es válido — este endpoint **nunca**
+devuelve 401/403 por un problema del token en sí; el resultado va en el
+body):
 
 Token válido:
 ```json
@@ -342,14 +419,43 @@ Token inválido:
 ```
 
 `reason` posibles: `missing_token`, `expired`, `invalid_signature`,
-`malformed`, `revoked`.
+`malformed`, `revoked`, `application_mismatch` (el token es válido pero es
+de un usuario de otra aplicación, distinta de la indicada en `API_ID`).
 
 ---
 
-## 6. Formato de error genérico
+### `POST /auth/disable`
 
-Todos los errores (`400`, `401`, `409`) que no sean de `/verify` (que
-siempre devuelve `200`) usan este shape:
+Deshabilita al usuario **autenticado por el propio access token** (no
+recibe un id en el path ni en el body): pone `enabled=false`, revoca todos
+sus refresh tokens activos y bloquea el access token actual. Pensado como
+"cerrar sesión" definitivo/borrado de cuenta desde el propio cliente — no
+hay vuelta atrás salvo volviendo a llamar `/register` con el mismo email
+(ver nota en esa sección: reactiva la cuenta).
+
+**Headers:**
+- `API_ID: <uuid>` — requerido.
+- `Authorization: Bearer <accessToken>` — **requerido** (a diferencia de
+  `/logout`, acá no es opcional).
+
+Sin body.
+
+**204 No Content** en éxito.
+
+**Errores:**
+| Status | Body `message` | Causa |
+|---|---|---|
+| `400` | — | falta `API_ID` o `Authorization` |
+| `404` | `Aplicacion no encontrada` | `API_ID` inválido/inexistente |
+| `403` | `El access token no pertenece a la aplicacion indicada` | el token es de un usuario de otra aplicación |
+| `404` | `Usuario no encontrado` | el usuario del token ya no existe (caso raro) |
+
+---
+
+## 7. Formato de error genérico
+
+Todos los errores (`400`, `403`, `404`, `409`, etc.) que no sean de
+`/verify` (que siempre devuelve `200`) usan este shape:
 
 ```json
 {
@@ -362,12 +468,12 @@ siempre devuelve `200`) usan este shape:
 
 ---
 
-## 7. CORS
+## 8. CORS
 
 Configurado en `SecurityConfig`:
 - **Origins permitidos:** `https://darmozsc.duckdns.org` únicamente (hardcodeado, no hay wildcard).
 - **Métodos:** `GET`, `POST`, `OPTIONS`.
-- **Headers permitidos:** `Authorization`, `Content-Type`.
+- **Headers permitidos:** `Authorization`, `Content-Type`, `API_ID`.
 - **Credentials:** `false` (no cookies — auth es puramente por Bearer token en el header, no hay sesión/cookie).
 
 Un cliente que corra en otro origin (ej. `http://localhost:5173` en dev)
@@ -376,14 +482,15 @@ va a ser bloqueado por CORS salvo que se agregue explícitamente a
 
 ---
 
-## 8. Flujo completo (ejemplo con curl)
+## 9. Flujo completo (ejemplo con curl)
 
 ```bash
 BASE=https://darmozsc.duckdns.org/auth
+API_ID=22222222-2222-2222-2222-222222222222   # UUID de tu Aplicacion (seccion 3)
 
 # 1. Registro
 curl -s -X POST $BASE/register \
-  -H 'Content-Type: application/json' \
+  -H 'Content-Type: application/json' -H "API_ID: $API_ID" \
   -d '{"email":"demo@darmoz.com","password":"Demo12345!"}'
 # -> 201, guardar accessToken y refreshToken de la respuesta
 
@@ -393,32 +500,40 @@ curl -s https://darmozsc.duckdns.org/api/products \
   -H "Authorization: Bearer $ACCESS_TOKEN"
 
 # 3. Verificar el token contra darmoz-auth (validacion remota)
-curl -s -X POST $BASE/verify -H "Authorization: Bearer $ACCESS_TOKEN"
+curl -s -X POST $BASE/verify -H "Authorization: Bearer $ACCESS_TOKEN" -H "API_ID: $API_ID"
 
 # 4. Refrescar cuando el access token esta por expirar (o ya expiro)
 curl -s -X POST $BASE/refresh \
-  -H 'Content-Type: application/json' \
+  -H 'Content-Type: application/json' -H "API_ID: $API_ID" \
   -d "{\"refreshToken\":\"$REFRESH_TOKEN\"}"
 # -> 200, accessToken y refreshToken NUEVOS. Descartar los viejos.
 
 # 5. Logout (revoca la sesion)
 curl -s -X POST $BASE/logout \
   -H "Authorization: Bearer $ACCESS_TOKEN" \
-  -H 'Content-Type: application/json' \
+  -H 'Content-Type: application/json' -H "API_ID: $API_ID" \
   -d "{\"refreshToken\":\"$REFRESH_TOKEN\"}"
+# -> 204
+
+# 6. Deshabilitar la cuenta (borrado logico, no hay vuelta atras salvo
+#    volviendo a registrarse con el mismo email)
+curl -s -X POST $BASE/disable \
+  -H "Authorization: Bearer $ACCESS_TOKEN" -H "API_ID: $API_ID"
 # -> 204
 ```
 
 ---
 
-## 9. Guía rápida para implementar un cliente
+## 10. Guía rápida para implementar un cliente
 
 1. Guardar `accessToken` en memoria (no localStorage si se puede evitar —
    es un JWT legible, aunque no falsificable sin la llave privada).
    Guardar `refreshToken` en almacenamiento persistente seguro (httpOnly
    cookie si el cliente es un backend-for-frontend; storage seguro si es
-   una app nativa).
-2. En cada request a un recurso protegido, mandar
+   una app nativa). Guardar el `API_ID` de tu aplicación como constante —
+   no cambia entre requests.
+2. En cada llamada a un endpoint de la sección 6, mandar `API_ID`. En cada
+   request a un recurso protegido, mandar además
    `Authorization: Bearer <accessToken>`.
 3. Si una request devuelve `401` y el token no expiró todavía (chequear
    `exp` del JWT decodificado localmente, sin verificar firma, solo para
@@ -429,14 +544,16 @@ curl -s -X POST $BASE/logout \
    el `accessToken` nuevo.
 5. Si `/refresh` devuelve `401`, el usuario tiene que loguearse de nuevo —
    no hay forma de recuperar la sesión (podría ser un refresh token
-   reusado/robado, o expirado).
+   reusado/robado, o expirado). Si devuelve `403`, es un error de
+   integración (el refresh token es de otra aplicación) — revisar el
+   `API_ID` configurado.
 6. En logout, mandar siempre el `accessToken` en el header además del
    `refreshToken` en el body, para que la revocación sea inmediata en
    ambos.
 
 ---
 
-## 10. Configuración relevante (variables de entorno)
+## 11. Configuración relevante (variables de entorno)
 
 No es necesario para consumir la API, pero ayuda a entender el
 comportamiento observado en cada entorno:

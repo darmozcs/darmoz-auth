@@ -26,6 +26,7 @@ public class JwtService {
     private static final String CLAIM_EMAIL = "email";
     private static final String CLAIM_ROLES = "roles";
     private static final String CLAIM_PERMISSIONS = "permissions";
+    private static final String CLAIM_APPLICATION_ID = "applicationId";
     private static final String CLAIM_TYPE = "typ";
     private static final String TYPE_ACCESS = "access";
     private static final String PERMISSION_SERVICE = "service";
@@ -61,6 +62,7 @@ public class JwtService {
                 .claim(CLAIM_EMAIL, user.getEmail())
                 .claim(CLAIM_ROLES, roles)
                 .claim(CLAIM_PERMISSIONS, permissionClaims)
+                .claim(CLAIM_APPLICATION_ID, user.getApplication().getId().toString())
                 .claim(CLAIM_TYPE, TYPE_ACCESS)
                 .issuer(properties.getIssuer())
                 .issuedAt(java.util.Date.from(issuedAt))
@@ -100,15 +102,19 @@ public class JwtService {
                 .map(claim -> new PermissionDto(
                         claim.get(PERMISSION_SERVICE), claim.get(PERMISSION_METHOD), claim.get(PERMISSION_PATH)))
                 .collect(Collectors.toList());
+        // Null-safe: tokens emitidos antes de que este claim existiera (ventana de rollout
+        // del deploy que lo introdujo) no lo tienen.
+        String applicationIdClaim = claims.get(CLAIM_APPLICATION_ID, String.class);
+        UUID applicationId = applicationIdClaim == null ? null : UUID.fromString(applicationIdClaim);
         UUID jti = UUID.fromString(claims.getId());
         Instant expiresAt = claims.getExpiration().toInstant();
-        return new ParsedAccessToken(userId, email, roles, permissions, jti, expiresAt);
+        return new ParsedAccessToken(userId, email, roles, permissions, applicationId, jti, expiresAt);
     }
 
     public record IssuedAccessToken(String token, UUID jti, Instant expiresAt) {
     }
 
     public record ParsedAccessToken(UUID userId, String email, Set<String> roles, List<PermissionDto> permissions,
-                                     UUID jti, Instant expiresAt) {
+                                     UUID applicationId, UUID jti, Instant expiresAt) {
     }
 }

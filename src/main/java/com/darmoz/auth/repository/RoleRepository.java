@@ -8,7 +8,9 @@ import java.util.UUID;
 
 public interface RoleRepository extends JpaRepository<Role, UUID> {
 
-    Optional<Role> findByName(String name);
+    Optional<Role> findByApplicationIdAndName(UUID applicationId, String name);
 
-    boolean existsByName(String name);
+    boolean existsByApplicationIdAndName(UUID applicationId, String name);
+
+    boolean existsByApplicationId(UUID applicationId);
 }

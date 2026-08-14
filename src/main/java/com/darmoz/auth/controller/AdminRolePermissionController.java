@@ -29,8 +29,8 @@ public class AdminRolePermissionController {
     }
 
     @GetMapping
-    public List<RolePermissionResponse> list(@RequestParam(required = false) String role) {
-        return adminRolePermissionService.list(role);
+    public List<RolePermissionResponse> list(@RequestParam(required = false) UUID roleId) {
+        return adminRolePermissionService.list(roleId);
     }
 
     @PostMapping

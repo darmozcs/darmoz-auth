@@ -7,8 +7,10 @@ import com.darmoz.auth.dto.request.RegisterRequest;
 import com.darmoz.auth.dto.response.AuthResponse;
 import com.darmoz.auth.dto.response.PermissionDto;
 import com.darmoz.auth.dto.response.VerifyResponse;
+import com.darmoz.auth.entity.Application;
 import com.darmoz.auth.entity.Role;
 import com.darmoz.auth.entity.RolePermission;
+import com.darmoz.auth.repository.ApplicationRepository;
 import com.darmoz.auth.repository.RolePermissionRepository;
 import com.darmoz.auth.repository.RoleRepository;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,7 +20,9 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
 import java.util.UUID;
@@ -37,12 +41,18 @@ class AuthControllerIT extends AbstractIntegrationTest {
     @Autowired
     private RoleRepository roleRepository;
 
+    @Autowired
+    private ApplicationRepository applicationRepository;
+
     private PermissionDto expectedPermission;
+    private UUID applicationId;
 
     @BeforeEach
     void seedRolePermissions() {
         rolePermissionRepository.deleteAll();
-        Role userRole = roleRepository.findByName("USER").orElseThrow();
+        Application application = applicationRepository.findByName("Laryon").orElseThrow();
+        applicationId = application.getId();
+        Role userRole = roleRepository.findByApplicationIdAndName(applicationId, "USER").orElseThrow();
         rolePermissionRepository.save(new RolePermission(userRole, "nexora-api", "GET", "/api/products/**"));
         expectedPermission = new PermissionDto("nexora-api", "GET", "/api/products/**");
     }
@@ -52,83 +62,105 @@ class AuthControllerIT extends AbstractIntegrationTest {
         String email = "user-" + UUID.randomUUID() + "@darmoz.com";
         String password = "Test1234!";
 
-        ResponseEntity<AuthResponse> registerResponse = restTemplate.postForEntity(
-                "/auth/register", new RegisterRequest(email, password), AuthResponse.class);
+        ResponseEntity<AuthResponse> registerResponse = restTemplate.exchange(
+                "/auth/register", HttpMethod.POST, new HttpEntity<>(new RegisterRequest(email, password), jsonHeaders()),
+                AuthResponse.class);
         assertThat(registerResponse.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(registerResponse.getBody()).isNotNull();
         assertThat(registerResponse.getBody().roles()).containsExactly("USER");
         assertThat(registerResponse.getBody().permissions()).containsExactly(expectedPermission);
 
-        ResponseEntity<String> duplicateResponse = restTemplate.postForEntity(
-                "/auth/register", new RegisterRequest(email, password), String.class);
+        ResponseEntity<String> duplicateResponse = restTemplate.exchange(
+                "/auth/register", HttpMethod.POST, new HttpEntity<>(new RegisterRequest(email, password), jsonHeaders()),
+                String.class);
         assertThat(duplicateResponse.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
 
-        ResponseEntity<String> badLoginResponse = restTemplate.postForEntity(
-                "/auth/login", new LoginRequest(email, "wrong-password"), String.class);
+        ResponseEntity<String> badLoginResponse = restTemplate.exchange(
+                "/auth/login", HttpMethod.POST, new HttpEntity<>(new LoginRequest(email, "wrong-password"), jsonHeaders()),
+                String.class);
         assertThat(badLoginResponse.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
 
-        ResponseEntity<AuthResponse> loginResponse = restTemplate.postForEntity(
-                "/auth/login", new LoginRequest(email, password), AuthResponse.class);
+        ResponseEntity<AuthResponse> loginResponse = restTemplate.exchange(
+                "/auth/login", HttpMethod.POST, new HttpEntity<>(new LoginRequest(email, password), jsonHeaders()),
+                AuthResponse.class);
         assertThat(loginResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
         AuthResponse tokens = loginResponse.getBody();
         assertThat(tokens).isNotNull();
         assertThat(tokens.permissions()).containsExactly(expectedPermission);
 
         ResponseEntity<VerifyResponse> verifyResponse = restTemplate.exchange(
-                "/auth/verify", org.springframework.http.HttpMethod.POST,
-                bearerEntity(tokens.accessToken()), VerifyResponse.class);
+                "/auth/verify", HttpMethod.POST, bearerEntity(tokens.accessToken()), VerifyResponse.class);
         assertThat(verifyResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(verifyResponse.getBody().valid()).isTrue();
         assertThat(verifyResponse.getBody().email()).isEqualTo(email);
         assertThat(verifyResponse.getBody().permissions()).containsExactly(expectedPermission);
 
-        ResponseEntity<VerifyResponse> noTokenVerify = restTemplate.postForEntity(
-                "/auth/verify", null, VerifyResponse.class);
+        ResponseEntity<VerifyResponse> noTokenVerify = restTemplate.exchange(
+                "/auth/verify", HttpMethod.POST, apiIdOnlyEntity(), VerifyResponse.class);
         assertThat(noTokenVerify.getBody().valid()).isFalse();
         assertThat(noTokenVerify.getBody().reason()).isEqualTo("missing_token");
 
-        ResponseEntity<AuthResponse> refreshResponse = restTemplate.postForEntity(
-                "/auth/refresh", new RefreshRequest(tokens.refreshToken()), AuthResponse.class);
+        ResponseEntity<AuthResponse> refreshResponse = restTemplate.exchange(
+                "/auth/refresh", HttpMethod.POST, new HttpEntity<>(new RefreshRequest(tokens.refreshToken()), jsonHeaders()),
+                AuthResponse.class);
         assertThat(refreshResponse.getStatusCode()).isEqualTo(HttpStatus.OK);
         AuthResponse rotatedTokens = refreshResponse.getBody();
         assertThat(rotatedTokens).isNotNull();
         assertThat(rotatedTokens.refreshToken()).isNotEqualTo(tokens.refreshToken());
         assertThat(rotatedTokens.permissions()).containsExactly(expectedPermission);
 
-        ResponseEntity<String> reusedRefreshResponse = restTemplate.postForEntity(
-                "/auth/refresh", new RefreshRequest(tokens.refreshToken()), String.class);
+        ResponseEntity<String> reusedRefreshResponse = restTemplate.exchange(
+                "/auth/refresh", HttpMethod.POST, new HttpEntity<>(new RefreshRequest(tokens.refreshToken()), jsonHeaders()),
+                String.class);
         assertThat(reusedRefreshResponse.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
 
-        ResponseEntity<String> refreshAfterReuseDetectionResponse = restTemplate.postForEntity(
-                "/auth/refresh", new RefreshRequest(rotatedTokens.refreshToken()), String.class);
+        ResponseEntity<String> refreshAfterReuseDetectionResponse = restTemplate.exchange(
+                "/auth/refresh", HttpMethod.POST, new HttpEntity<>(new RefreshRequest(rotatedTokens.refreshToken()), jsonHeaders()),
+                String.class);
         assertThat(refreshAfterReuseDetectionResponse.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
 
-        ResponseEntity<AuthResponse> secondLogin = restTemplate.postForEntity(
-                "/auth/login", new LoginRequest(email, password), AuthResponse.class);
+        ResponseEntity<AuthResponse> secondLogin = restTemplate.exchange(
+                "/auth/login", HttpMethod.POST, new HttpEntity<>(new LoginRequest(email, password), jsonHeaders()),
+                AuthResponse.class);
         AuthResponse freshTokens = secondLogin.getBody();
         assertThat(freshTokens).isNotNull();
 
         HttpHeaders logoutHeaders = new HttpHeaders();
         logoutHeaders.setBearerAuth(freshTokens.accessToken());
+        logoutHeaders.set("API_ID", applicationId.toString());
         ResponseEntity<Void> logoutResponse = restTemplate.exchange(
-                "/auth/logout", org.springframework.http.HttpMethod.POST,
+                "/auth/logout", HttpMethod.POST,
                 new HttpEntity<>(new LogoutRequest(freshTokens.refreshToken()), logoutHeaders), Void.class);
         assertThat(logoutResponse.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 
         ResponseEntity<VerifyResponse> verifyAfterLogout = restTemplate.exchange(
-                "/auth/verify", org.springframework.http.HttpMethod.POST,
-                bearerEntity(freshTokens.accessToken()), VerifyResponse.class);
+                "/auth/verify", HttpMethod.POST, bearerEntity(freshTokens.accessToken()), VerifyResponse.class);
         assertThat(verifyAfterLogout.getBody().valid()).isFalse();
         assertThat(verifyAfterLogout.getBody().reason()).isEqualTo("revoked");
 
-        ResponseEntity<String> refreshAfterLogoutResponse = restTemplate.postForEntity(
-                "/auth/refresh", new RefreshRequest(freshTokens.refreshToken()), String.class);
+        ResponseEntity<String> refreshAfterLogoutResponse = restTemplate.exchange(
+                "/auth/refresh", HttpMethod.POST, new HttpEntity<>(new RefreshRequest(freshTokens.refreshToken()), jsonHeaders()),
+                String.class);
         assertThat(refreshAfterLogoutResponse.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    private HttpHeaders jsonHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("API_ID", applicationId.toString());
+        return headers;
     }
 
     private HttpEntity<Void> bearerEntity(String accessToken) {
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(accessToken);
+        headers.set("API_ID", applicationId.toString());
+        return new HttpEntity<>(headers);
+    }
+
+    private HttpEntity<Void> apiIdOnlyEntity() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("API_ID", applicationId.toString());
         return new HttpEntity<>(headers);
     }
 }

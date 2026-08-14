@@ -6,12 +6,15 @@ import com.darmoz.auth.dto.request.RegisterRequest;
 import com.darmoz.auth.dto.response.AuthResponse;
 import com.darmoz.auth.dto.response.PermissionDto;
 import com.darmoz.auth.dto.response.VerifyResponse;
+import com.darmoz.auth.entity.Application;
 import com.darmoz.auth.entity.Role;
 import com.darmoz.auth.entity.RevokedAccessToken;
 import com.darmoz.auth.entity.User;
+import com.darmoz.auth.exception.ApplicationMismatchException;
 import com.darmoz.auth.exception.InvalidCredentialsException;
 import com.darmoz.auth.exception.NotFoundException;
 import com.darmoz.auth.exception.UserAlreadyExistsException;
+import com.darmoz.auth.repository.ApplicationRepository;
 import com.darmoz.auth.repository.RevokedAccessTokenRepository;
 import com.darmoz.auth.repository.RoleRepository;
 import com.darmoz.auth.repository.UserRepository;
@@ -37,6 +40,7 @@ public class AuthService {
 
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
+    private final ApplicationRepository applicationRepository;
     private final RevokedAccessTokenRepository revokedAccessTokenRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
@@ -45,6 +49,7 @@ public class AuthService {
 
     public AuthService(UserRepository userRepository,
                         RoleRepository roleRepository,
+                        ApplicationRepository applicationRepository,
                         RevokedAccessTokenRepository revokedAccessTokenRepository,
                         PasswordEncoder passwordEncoder,
                         JwtService jwtService,
@@ -52,6 +57,7 @@ public class AuthService {
                         PermissionService permissionService) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
+        this.applicationRepository = applicationRepository;
         this.revokedAccessTokenRepository = revokedAccessTokenRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
@@ -60,8 +66,10 @@ public class AuthService {
     }
 
     @Transactional
-    public AuthResponse register(RegisterRequest request) {
-        Optional<User> existing = userRepository.findByEmail(request.email());
+    public AuthResponse register(String apiId, RegisterRequest request) {
+        Application application = requireApplication(apiId);
+
+        Optional<User> existing = userRepository.findByApplicationIdAndEmail(application.getId(), request.email());
         if (existing.isPresent()) {
             User user = existing.get();
             if (user.isEnabled()) {
@@ -72,16 +80,19 @@ public class AuthService {
             return issueTokens(user);
         }
 
-        Role defaultRole = roleRepository.findByName(DEFAULT_ROLE)
-                .orElseThrow(() -> new IllegalStateException("Rol base '" + DEFAULT_ROLE + "' no existe; falta la migracion de seed"));
-        User user = new User(request.email(), passwordEncoder.encode(request.password()), Set.of(defaultRole));
+        Role defaultRole = roleRepository.findByApplicationIdAndName(application.getId(), DEFAULT_ROLE)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Rol base '" + DEFAULT_ROLE + "' no existe para la aplicacion " + application.getId()));
+        User user = new User(request.email(), passwordEncoder.encode(request.password()), Set.of(defaultRole), application);
         userRepository.save(user);
         return issueTokens(user);
     }
 
     @Transactional
-    public AuthResponse login(LoginRequest request) {
-        User user = userRepository.findByEmail(request.email())
+    public AuthResponse login(String apiId, LoginRequest request) {
+        Application application = requireApplication(apiId);
+
+        User user = userRepository.findByApplicationIdAndEmail(application.getId(), request.email())
                 .orElseThrow(() -> new InvalidCredentialsException("Email o password invalidos"));
 
         if (!user.isEnabled() || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
@@ -91,10 +102,19 @@ public class AuthService {
     }
 
     @Transactional
-    public AuthResponse refresh(RefreshRequest request) {
+    public AuthResponse refresh(String apiId, RefreshRequest request) {
+        Application application = requireApplication(apiId);
+
         RefreshTokenService.RotationResult rotation = refreshTokenService.rotate(request.refreshToken());
         User user = userRepository.findById(rotation.userId())
                 .orElseThrow(() -> new InvalidCredentialsException("Usuario asociado al token ya no existe"));
+
+        if (!user.getApplication().getId().equals(application.getId())) {
+            // El refresh token ya se roto (es valido); si no lo revocamos aca queda
+            // una credencial usable pese a que esta request se rechaza.
+            refreshTokenService.revoke(rotation.rawToken());
+            throw new ApplicationMismatchException("El refresh token no pertenece a la aplicacion indicada");
+        }
 
         List<PermissionDto> permissions = permissionService.resolve(user.getRoles());
         JwtService.IssuedAccessToken accessToken = jwtService.generateAccessToken(user, permissions);
@@ -103,7 +123,12 @@ public class AuthService {
     }
 
     @Transactional
-    public void logout(String accessToken, String refreshToken) {
+    public void logout(String apiId, String accessToken, String refreshToken) {
+        // Se valida que la aplicacion exista, pero deliberadamente no se compara contra el
+        // token/refresh token: accessToken es opcional en este endpoint y revocar una sesion
+        // que uno ya posee (secreto propio) no representa riesgo cross-tenant.
+        requireApplication(apiId);
+
         refreshTokenService.revoke(refreshToken);
 
         if (accessToken == null) {
@@ -121,7 +146,9 @@ public class AuthService {
     }
 
     @Transactional(readOnly = true)
-    public VerifyResponse verify(String accessToken) {
+    public VerifyResponse verify(String apiId, String accessToken) {
+        Application application = requireApplication(apiId);
+
         if (accessToken == null || accessToken.isBlank()) {
             return VerifyResponse.invalid("missing_token");
         }
@@ -129,6 +156,9 @@ public class AuthService {
             JwtService.ParsedAccessToken parsed = jwtService.parse(accessToken);
             if (revokedAccessTokenRepository.existsByJti(parsed.jti())) {
                 return VerifyResponse.invalid("revoked");
+            }
+            if (parsed.applicationId() == null || !parsed.applicationId().equals(application.getId())) {
+                return VerifyResponse.invalid("application_mismatch");
             }
             return VerifyResponse.valid(parsed.userId(), parsed.email(), parsed.roles(),
                     parsed.permissions(), parsed.expiresAt());
@@ -142,8 +172,14 @@ public class AuthService {
     }
 
     @Transactional
-    public void disableCurrentUser(String accessToken) {
+    public void disableCurrentUser(String apiId, String accessToken) {
+        Application application = requireApplication(apiId);
+
         JwtService.ParsedAccessToken parsed = jwtService.parse(accessToken);
+        if (parsed.applicationId() == null || !parsed.applicationId().equals(application.getId())) {
+            throw new ApplicationMismatchException("El access token no pertenece a la aplicacion indicada");
+        }
+
         User user = userRepository.findById(parsed.userId())
                 .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
 
@@ -152,6 +188,17 @@ public class AuthService {
 
         refreshTokenService.revokeAllForUser(user.getId());
         blockAccessToken(parsed.jti(), parsed.expiresAt());
+    }
+
+    private Application requireApplication(String apiId) {
+        UUID applicationId;
+        try {
+            applicationId = UUID.fromString(apiId);
+        } catch (IllegalArgumentException e) {
+            throw new NotFoundException("Aplicacion no encontrada");
+        }
+        return applicationRepository.findById(applicationId)
+                .orElseThrow(() -> new NotFoundException("Aplicacion no encontrada"));
     }
 
     private void blockAccessToken(UUID jti, Instant expiresAt) {

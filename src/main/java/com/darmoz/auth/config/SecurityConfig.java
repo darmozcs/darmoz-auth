@@ -55,7 +55,7 @@ public class SecurityConfig {
         CorsConfiguration publicApiConfig = new CorsConfiguration();
         publicApiConfig.setAllowedOrigins(List.of("https://darmozsc.duckdns.org"));
         publicApiConfig.setAllowedMethods(List.of("GET", "POST", "OPTIONS"));
-        publicApiConfig.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        publicApiConfig.setAllowedHeaders(List.of("Authorization", "Content-Type", "API_ID"));
         publicApiConfig.setAllowCredentials(false);
 
         // Dashboard admin (/admin/api/**): necesita PUT/PATCH/DELETE (editar
@@ -67,7 +67,7 @@ public class SecurityConfig {
         CorsConfiguration adminApiConfig = new CorsConfiguration();
         adminApiConfig.setAllowedOrigins(List.of("https://darmozsc.duckdns.org"));
         adminApiConfig.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-        adminApiConfig.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        adminApiConfig.setAllowedHeaders(List.of("Authorization", "Content-Type", "API_ID"));
         adminApiConfig.setAllowCredentials(false);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

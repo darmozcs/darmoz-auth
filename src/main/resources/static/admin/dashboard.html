@@ -20,6 +20,7 @@
   <button type="button" class="tab-btn active" data-tab="users">Usuarios</button>
   <button type="button" class="tab-btn" data-tab="roles">Roles</button>
   <button type="button" class="tab-btn" data-tab="permissions">Permisos</button>
+  <button type="button" class="tab-btn" data-tab="applications">Aplicaciones</button>
 </nav>
 
 <main>
@@ -28,7 +29,7 @@
   <section id="panel-users" class="panel active">
     <table>
       <thead>
-        <tr><th>Email</th><th>Estado</th><th>Roles</th><th>Acciones</th></tr>
+        <tr><th>Email</th><th>Aplicación</th><th>Estado</th><th>Roles</th><th>Acciones</th></tr>
       </thead>
       <tbody id="users-table-body"></tbody>
     </table>
@@ -45,6 +46,8 @@
             <input type="password" id="user-password" minlength="8" required>
           </div>
         </div>
+        <label for="user-application">Aplicación</label>
+        <select id="user-application" required></select>
         <label for="user-roles">Roles</label>
         <select id="user-roles" multiple required></select>
         <div class="form-actions">
@@ -57,7 +60,7 @@
   <section id="panel-roles" class="panel">
     <table>
       <thead>
-        <tr><th>Nombre</th><th>Descripción</th><th>Acciones</th></tr>
+        <tr><th>Aplicación</th><th>Nombre</th><th>Descripción</th><th>Acciones</th></tr>
       </thead>
       <tbody id="roles-table-body"></tbody>
     </table>
@@ -73,6 +76,10 @@
             <label for="role-description">Descripción</label>
             <input type="text" id="role-description">
           </div>
+          <div>
+            <label for="role-application">Aplicación</label>
+            <select id="role-application" required></select>
+          </div>
         </div>
         <div class="form-actions">
           <button type="submit">Crear rol</button>
@@ -84,7 +91,7 @@
   <section id="panel-permissions" class="panel">
     <table>
       <thead>
-        <tr><th>Rol</th><th>Servicio</th><th>Método</th><th>Endpoint</th><th>Acciones</th></tr>
+        <tr><th>Aplicación</th><th>Rol</th><th>Servicio</th><th>Método</th><th>Endpoint</th><th>Acciones</th></tr>
       </thead>
       <tbody id="permissions-table-body"></tbody>
     </table>
@@ -119,6 +126,35 @@
         </div>
         <div class="form-actions">
           <button type="submit">Crear permiso</button>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section id="panel-applications" class="panel">
+    <table>
+      <thead>
+        <tr><th>Servicio</th><th>Nombre</th><th>Descripción</th><th>Acciones</th></tr>
+      </thead>
+      <tbody id="applications-table-body"></tbody>
+    </table>
+    <div class="form-card">
+      <h2>Nueva aplicación</h2>
+      <form id="application-form">
+        <div class="form-row">
+          <div>
+            <label for="application-service-name">Nombre de servicio</label>
+            <input type="text" id="application-service-name" required>
+          </div>
+          <div>
+            <label for="application-name">Nombre de aplicación</label>
+            <input type="text" id="application-name" required>
+          </div>
+        </div>
+        <label for="application-description">Descripción</label>
+        <input type="text" id="application-description">
+        <div class="form-actions">
+          <button type="submit">Crear aplicación</button>
         </div>
       </form>
     </div>

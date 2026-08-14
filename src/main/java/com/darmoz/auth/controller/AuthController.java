@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private static final String BEARER_PREFIX = "Bearer ";
+    private static final String API_ID_HEADER = "API_ID";
 
     private final AuthService authService;
 
@@ -30,37 +31,43 @@ public class AuthController {
     }
 
     @PostMapping("/register")
-    public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(authService.register(request));
+    public ResponseEntity<AuthResponse> register(@RequestHeader(API_ID_HEADER) String apiId,
+                                                  @Valid @RequestBody RegisterRequest request) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(authService.register(apiId, request));
     }
 
     @PostMapping("/login")
-    public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
-        return ResponseEntity.ok(authService.login(request));
+    public ResponseEntity<AuthResponse> login(@RequestHeader(API_ID_HEADER) String apiId,
+                                               @Valid @RequestBody LoginRequest request) {
+        return ResponseEntity.ok(authService.login(apiId, request));
     }
 
     @PostMapping("/refresh")
-    public ResponseEntity<AuthResponse> refresh(@Valid @RequestBody RefreshRequest request) {
-        return ResponseEntity.ok(authService.refresh(request));
+    public ResponseEntity<AuthResponse> refresh(@RequestHeader(API_ID_HEADER) String apiId,
+                                                 @Valid @RequestBody RefreshRequest request) {
+        return ResponseEntity.ok(authService.refresh(apiId, request));
     }
 
     @PostMapping("/logout")
     public ResponseEntity<Void> logout(
+            @RequestHeader(API_ID_HEADER) String apiId,
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader,
             @Valid @RequestBody LogoutRequest request) {
-        authService.logout(extractBearerToken(authorizationHeader), request.refreshToken());
+        authService.logout(apiId, extractBearerToken(authorizationHeader), request.refreshToken());
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/verify")
     public ResponseEntity<VerifyResponse> verify(
+            @RequestHeader(API_ID_HEADER) String apiId,
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader) {
-        return ResponseEntity.ok(authService.verify(extractBearerToken(authorizationHeader)));
+        return ResponseEntity.ok(authService.verify(apiId, extractBearerToken(authorizationHeader)));
     }
 
     @PostMapping("/disable")
-    public ResponseEntity<Void> disable(@RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader) {
-        authService.disableCurrentUser(extractBearerToken(authorizationHeader));
+    public ResponseEntity<Void> disable(@RequestHeader(API_ID_HEADER) String apiId,
+                                         @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader) {
+        authService.disableCurrentUser(apiId, extractBearerToken(authorizationHeader));
         return ResponseEntity.noContent().build();
     }
 

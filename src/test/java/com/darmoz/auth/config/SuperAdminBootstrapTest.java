@@ -1,6 +1,8 @@
 package com.darmoz.auth.config;
 
+import com.darmoz.auth.entity.Application;
 import com.darmoz.auth.entity.Role;
+import com.darmoz.auth.repository.ApplicationRepository;
 import com.darmoz.auth.repository.RoleRepository;
 import com.darmoz.auth.repository.UserRepository;
 import org.junit.jupiter.api.Test;
@@ -27,23 +29,33 @@ class SuperAdminBootstrapTest {
     private RoleRepository roleRepository;
 
     @Mock
+    private ApplicationRepository applicationRepository;
+
+    @Mock
     private PasswordEncoder passwordEncoder;
+
+    private final Application systemApplication = new Application(
+            SuperAdminBootstrap.SYSTEM_APPLICATION_ID, "darmoz-auth", "darmoz-auth-admin", null);
 
     @Test
     void doesNothingWhenEnvVarsAreBlank() {
-        SuperAdminBootstrap bootstrap = new SuperAdminBootstrap(userRepository, roleRepository, passwordEncoder, "", "");
+        SuperAdminBootstrap bootstrap = new SuperAdminBootstrap(
+                userRepository, roleRepository, applicationRepository, passwordEncoder, "", "");
 
         bootstrap.run(null);
 
-        verify(userRepository, never()).existsByEmail(any());
+        verify(applicationRepository, never()).findById(any());
         verify(userRepository, never()).save(any());
     }
 
     @Test
     void doesNothingWhenSuperUserAlreadyExists() {
-        when(userRepository.existsByEmail("super@darmoz.com")).thenReturn(true);
+        when(applicationRepository.findById(SuperAdminBootstrap.SYSTEM_APPLICATION_ID))
+                .thenReturn(Optional.of(systemApplication));
+        when(userRepository.existsByApplicationIdAndEmail(systemApplication.getId(), "super@darmoz.com"))
+                .thenReturn(true);
         SuperAdminBootstrap bootstrap = new SuperAdminBootstrap(
-                userRepository, roleRepository, passwordEncoder, "super@darmoz.com", "Super1234!");
+                userRepository, roleRepository, applicationRepository, passwordEncoder, "super@darmoz.com", "Super1234!");
 
         bootstrap.run(null);
 
@@ -52,11 +64,15 @@ class SuperAdminBootstrapTest {
 
     @Test
     void createsSuperUserWhenMissing() {
-        when(userRepository.existsByEmail("super@darmoz.com")).thenReturn(false);
-        when(roleRepository.findByName("SUPER")).thenReturn(Optional.of(new Role("SUPER")));
+        when(applicationRepository.findById(SuperAdminBootstrap.SYSTEM_APPLICATION_ID))
+                .thenReturn(Optional.of(systemApplication));
+        when(userRepository.existsByApplicationIdAndEmail(systemApplication.getId(), "super@darmoz.com"))
+                .thenReturn(false);
+        when(roleRepository.findByApplicationIdAndName(systemApplication.getId(), "SUPER"))
+                .thenReturn(Optional.of(new Role("SUPER", systemApplication)));
         when(passwordEncoder.encode("Super1234!")).thenReturn("hashed");
         SuperAdminBootstrap bootstrap = new SuperAdminBootstrap(
-                userRepository, roleRepository, passwordEncoder, "super@darmoz.com", "Super1234!");
+                userRepository, roleRepository, applicationRepository, passwordEncoder, "super@darmoz.com", "Super1234!");
 
         bootstrap.run(null);
 
@@ -65,15 +81,20 @@ class SuperAdminBootstrapTest {
 
     @Test
     void runningTwiceOnlyCreatesOnce() {
-        when(roleRepository.findByName("SUPER")).thenReturn(Optional.of(new Role("SUPER")));
+        when(applicationRepository.findById(SuperAdminBootstrap.SYSTEM_APPLICATION_ID))
+                .thenReturn(Optional.of(systemApplication));
+        when(roleRepository.findByApplicationIdAndName(systemApplication.getId(), "SUPER"))
+                .thenReturn(Optional.of(new Role("SUPER", systemApplication)));
         when(passwordEncoder.encode(any())).thenReturn("hashed");
         SuperAdminBootstrap bootstrap = new SuperAdminBootstrap(
-                userRepository, roleRepository, passwordEncoder, "super@darmoz.com", "Super1234!");
+                userRepository, roleRepository, applicationRepository, passwordEncoder, "super@darmoz.com", "Super1234!");
 
-        when(userRepository.existsByEmail("super@darmoz.com")).thenReturn(false);
+        when(userRepository.existsByApplicationIdAndEmail(systemApplication.getId(), "super@darmoz.com"))
+                .thenReturn(false);
         bootstrap.run(null);
 
-        when(userRepository.existsByEmail("super@darmoz.com")).thenReturn(true);
+        when(userRepository.existsByApplicationIdAndEmail(systemApplication.getId(), "super@darmoz.com"))
+                .thenReturn(true);
         bootstrap.run(null);
 
         verify(userRepository, times(1)).save(any());

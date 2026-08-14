@@ -26,13 +26,13 @@ public class AdminRolePermissionService {
     }
 
     @Transactional(readOnly = true)
-    public List<RolePermissionResponse> list(String roleName) {
+    public List<RolePermissionResponse> list(UUID roleId) {
         List<RolePermission> permissions;
-        if (roleName == null || roleName.isBlank()) {
+        if (roleId == null) {
             permissions = rolePermissionRepository.findAll();
         } else {
-            Role role = roleRepository.findByName(roleName)
-                    .orElseThrow(() -> new NotFoundException("Rol no encontrado: " + roleName));
+            Role role = roleRepository.findById(roleId)
+                    .orElseThrow(() -> new NotFoundException("Rol no encontrado: " + roleId));
             permissions = rolePermissionRepository.findByRoleIn(List.of(role));
         }
         return permissions.stream().map(RolePermissionResponse::of).toList();
@@ -40,8 +40,8 @@ public class AdminRolePermissionService {
 
     @Transactional
     public RolePermissionResponse create(AdminCreateRolePermissionRequest request) {
-        Role role = roleRepository.findByName(request.role())
-                .orElseThrow(() -> new NotFoundException("Rol no encontrado: " + request.role()));
+        Role role = roleRepository.findById(request.roleId())
+                .orElseThrow(() -> new NotFoundException("Rol no encontrado: " + request.roleId()));
         boolean exists = rolePermissionRepository.existsByRoleAndServiceAndHttpMethodAndEndpointPattern(
                 role, request.service(), request.httpMethod(), request.endpointPattern());
         if (exists) {

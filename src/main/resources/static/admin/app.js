@@ -1,5 +1,6 @@
 const AUTH_BASE = '/auth';
 const ADMIN_API = `${AUTH_BASE}/admin/api`;
+const SYSTEM_API_ID = '11111111-1111-1111-1111-111111111111';
 
 let session = JSON.parse(sessionStorage.getItem('darmoz_admin_session') || 'null');
 if (!session || !session.accessToken) {
@@ -33,7 +34,7 @@ async function refreshSession() {
       try {
         const response = await fetch(`${AUTH_BASE}/refresh`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: { 'Content-Type': 'application/json', 'API_ID': SYSTEM_API_ID },
           body: JSON.stringify({ refreshToken: session.refreshToken }),
         });
         if (!response.ok) return false;
@@ -89,6 +90,7 @@ async function authFetchJson(path, options = {}) {
 }
 
 let rolesCache = [];
+let applicationsCache = [];
 
 document.querySelectorAll('.tab-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
@@ -112,19 +114,34 @@ async function loadRoles() {
 }
 
 function renderRoleDropdowns() {
-  const userRolesSelect = document.getElementById('user-roles');
+  renderPermissionRoleDropdown();
+  filterUserRolesByApplication();
+}
+
+function renderPermissionRoleDropdown() {
   const permissionRoleSelect = document.getElementById('permission-role');
-  const options = rolesCache
+  permissionRoleSelect.innerHTML = rolesCache
+    .map((role) => `<option value="${role.id}">${escapeHtml(role.applicationName)} / ${escapeHtml(role.name)}</option>`)
+    .join('');
+}
+
+function filterUserRolesByApplication() {
+  const userAppSelect = document.getElementById('user-application');
+  const userRolesSelect = document.getElementById('user-roles');
+  const selectedAppId = userAppSelect.value;
+  userRolesSelect.innerHTML = rolesCache
+    .filter((role) => role.applicationId === selectedAppId)
     .map((role) => `<option value="${escapeHtml(role.name)}">${escapeHtml(role.name)}</option>`)
     .join('');
-  userRolesSelect.innerHTML = options;
-  permissionRoleSelect.innerHTML = options;
 }
+
+document.getElementById('user-application').addEventListener('change', filterUserRolesByApplication);
 
 function renderRolesTable() {
   const body = document.getElementById('roles-table-body');
   body.innerHTML = rolesCache.map((role) => `
     <tr>
+      <td>${escapeHtml(role.applicationName)}</td>
       <td>${escapeHtml(role.name)}</td>
       <td>${escapeHtml(role.description)}</td>
       <td class="actions">
@@ -151,11 +168,12 @@ document.getElementById('role-form').addEventListener('submit', async (event) =>
   event.preventDefault();
   const name = document.getElementById('role-name').value;
   const description = document.getElementById('role-description').value;
+  const applicationId = document.getElementById('role-application').value;
   try {
     await authFetchJson(`${ADMIN_API}/roles`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, description }),
+      body: JSON.stringify({ name, description, applicationId }),
     });
     document.getElementById('role-form').reset();
     showGlobalError('');
@@ -173,8 +191,9 @@ async function loadUsers() {
 function renderUsersTable(users) {
   const body = document.getElementById('users-table-body');
   body.innerHTML = users.map((user) => `
-    <tr data-user-row="${user.id}">
+    <tr data-user-row="${user.id}" data-application-id="${user.applicationId}">
       <td>${escapeHtml(user.email)}</td>
+      <td>${escapeHtml(user.applicationName)}</td>
       <td>${user.enabled ? 'Habilitado' : 'Deshabilitado'}</td>
       <td>${user.roles.map((r) => `<span class="badge">${escapeHtml(r)}</span>`).join('')}</td>
       <td class="actions">
@@ -223,8 +242,11 @@ function renderUsersTable(users) {
 }
 
 function startRoleEdit(userId) {
-  const row = document.querySelector(`tr[data-user-row="${userId}"] td:nth-child(3)`);
+  const parentRow = document.querySelector(`tr[data-user-row="${userId}"]`);
+  const applicationId = parentRow.dataset.applicationId;
+  const row = parentRow.querySelector('td:nth-child(4)');
   const options = rolesCache
+    .filter((role) => role.applicationId === applicationId)
     .map((role) => `<option value="${escapeHtml(role.name)}">${escapeHtml(role.name)}</option>`)
     .join('');
   row.innerHTML = `
@@ -257,6 +279,7 @@ document.getElementById('user-form').addEventListener('submit', async (event) =>
   event.preventDefault();
   const email = document.getElementById('user-email').value;
   const password = document.getElementById('user-password').value;
+  const applicationId = document.getElementById('user-application').value;
   const roles = Array.from(document.getElementById('user-roles').selectedOptions).map((o) => o.value);
   if (roles.length === 0) {
     showGlobalError('Elegí al menos un rol.');
@@ -266,11 +289,12 @@ document.getElementById('user-form').addEventListener('submit', async (event) =>
     await authFetchJson(`${ADMIN_API}/users`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, roles }),
+      body: JSON.stringify({ email, password, applicationId, roles }),
     });
     document.getElementById('user-form').reset();
     showGlobalError('');
     await loadUsers();
+    filterUserRolesByApplication();
   } catch (err) {
     showGlobalError(err.message);
   }
@@ -285,6 +309,7 @@ function renderPermissionsTable(permissions) {
   const body = document.getElementById('permissions-table-body');
   body.innerHTML = permissions.map((permission) => `
     <tr>
+      <td>${escapeHtml(permission.applicationName)}</td>
       <td><span class="badge">${escapeHtml(permission.role)}</span></td>
       <td>${escapeHtml(permission.service)}</td>
       <td>${escapeHtml(permission.httpMethod)}</td>
@@ -311,7 +336,7 @@ function renderPermissionsTable(permissions) {
 
 document.getElementById('permission-form').addEventListener('submit', async (event) => {
   event.preventDefault();
-  const role = document.getElementById('permission-role').value;
+  const roleId = document.getElementById('permission-role').value;
   const service = document.getElementById('permission-service').value;
   const httpMethod = document.getElementById('permission-method').value;
   const endpointPattern = document.getElementById('permission-pattern').value;
@@ -319,7 +344,7 @@ document.getElementById('permission-form').addEventListener('submit', async (eve
     await authFetchJson(`${ADMIN_API}/role-permissions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ role, service, httpMethod, endpointPattern }),
+      body: JSON.stringify({ roleId, service, httpMethod, endpointPattern }),
     });
     document.getElementById('permission-form').reset();
     showGlobalError('');
@@ -329,8 +354,105 @@ document.getElementById('permission-form').addEventListener('submit', async (eve
   }
 });
 
+async function loadApplications() {
+  applicationsCache = await authFetchJson(`${ADMIN_API}/applications`);
+  renderApplicationsTable();
+  renderApplicationDropdowns();
+}
+
+function renderApplicationDropdowns() {
+  const options = applicationsCache
+    .map((app) => `<option value="${app.id}">${escapeHtml(app.name)}</option>`)
+    .join('');
+  document.getElementById('user-application').innerHTML = options;
+  document.getElementById('role-application').innerHTML = options;
+}
+
+function renderApplicationsTable() {
+  const body = document.getElementById('applications-table-body');
+  body.innerHTML = applicationsCache.map((app) => `
+    <tr data-application-row="${app.id}">
+      <td>${escapeHtml(app.serviceName)}</td>
+      <td>${escapeHtml(app.name)}</td>
+      <td>${escapeHtml(app.description)}</td>
+      <td class="actions">
+        <button type="button" data-edit-application="${app.id}">Editar</button>
+        <button type="button" class="danger" data-delete-application="${app.id}">Borrar</button>
+      </td>
+    </tr>
+  `).join('');
+
+  body.querySelectorAll('[data-delete-application]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('¿Borrar esta aplicación?')) return;
+      try {
+        await authFetchJson(`${ADMIN_API}/applications/${btn.dataset.deleteApplication}`, { method: 'DELETE' });
+        showGlobalError('');
+        await loadApplications();
+      } catch (err) {
+        showGlobalError(err.message);
+      }
+    });
+  });
+
+  body.querySelectorAll('[data-edit-application]').forEach((btn) => {
+    btn.addEventListener('click', () => startApplicationEdit(btn.dataset.editApplication));
+  });
+}
+
+function startApplicationEdit(appId) {
+  const app = applicationsCache.find((a) => a.id === appId);
+  const row = document.querySelector(`tr[data-application-row="${appId}"]`);
+  row.innerHTML = `
+    <td><input type="text" id="edit-app-service-${appId}" value="${escapeHtml(app.serviceName)}"></td>
+    <td><input type="text" id="edit-app-name-${appId}" value="${escapeHtml(app.name)}"></td>
+    <td><input type="text" id="edit-app-description-${appId}" value="${escapeHtml(app.description)}"></td>
+    <td class="actions">
+      <button type="button" data-save-application="${appId}">Guardar</button>
+      <button type="button" class="secondary" data-cancel-application="${appId}">Cancelar</button>
+    </td>
+  `;
+  row.querySelector(`[data-cancel-application="${appId}"]`).addEventListener('click', () => renderApplicationsTable());
+  row.querySelector(`[data-save-application="${appId}"]`).addEventListener('click', async () => {
+    const serviceName = document.getElementById(`edit-app-service-${appId}`).value;
+    const name = document.getElementById(`edit-app-name-${appId}`).value;
+    const description = document.getElementById(`edit-app-description-${appId}`).value;
+    try {
+      await authFetchJson(`${ADMIN_API}/applications/${appId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serviceName, name, description }),
+      });
+      showGlobalError('');
+      await loadApplications();
+    } catch (err) {
+      showGlobalError(err.message);
+    }
+  });
+}
+
+document.getElementById('application-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const serviceName = document.getElementById('application-service-name').value;
+  const name = document.getElementById('application-name').value;
+  const description = document.getElementById('application-description').value;
+  try {
+    await authFetchJson(`${ADMIN_API}/applications`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serviceName, name, description }),
+    });
+    document.getElementById('application-form').reset();
+    showGlobalError('');
+    await loadApplications();
+  } catch (err) {
+    showGlobalError(err.message);
+  }
+});
+
 (async function init() {
   try {
+    await loadApplications();
     await loadRoles();
     await loadUsers();
     await loadPermissions();

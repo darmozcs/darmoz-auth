@@ -1,6 +1,7 @@
 package com.darmoz.auth.service;
 
 import com.darmoz.auth.config.JwtProperties;
+import com.darmoz.auth.entity.Application;
 import com.darmoz.auth.entity.RefreshToken;
 import com.darmoz.auth.entity.Role;
 import com.darmoz.auth.entity.User;
@@ -104,6 +105,7 @@ class RefreshTokenServiceTest {
     }
 
     private User userInstance() {
-        return new User(userId, "user@darmoz.com", "hash", Set.of(new Role("USER")));
+        Application application = new Application("test-service", "test-app", null);
+        return new User(userId, "user@darmoz.com", "hash", Set.of(new Role("USER", application)), application);
     }
 }

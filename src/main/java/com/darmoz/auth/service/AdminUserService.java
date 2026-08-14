@@ -4,10 +4,12 @@ import com.darmoz.auth.dto.request.AdminAssignRolesRequest;
 import com.darmoz.auth.dto.request.AdminCreateUserRequest;
 import com.darmoz.auth.dto.request.AdminUpdateUserRequest;
 import com.darmoz.auth.dto.response.AdminUserResponse;
+import com.darmoz.auth.entity.Application;
 import com.darmoz.auth.entity.Role;
 import com.darmoz.auth.entity.User;
 import com.darmoz.auth.exception.NotFoundException;
 import com.darmoz.auth.exception.UserAlreadyExistsException;
+import com.darmoz.auth.repository.ApplicationRepository;
 import com.darmoz.auth.repository.RoleRepository;
 import com.darmoz.auth.repository.UserRepository;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -24,11 +26,14 @@ public class AdminUserService {
 
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
+    private final ApplicationRepository applicationRepository;
     private final PasswordEncoder passwordEncoder;
 
-    public AdminUserService(UserRepository userRepository, RoleRepository roleRepository, PasswordEncoder passwordEncoder) {
+    public AdminUserService(UserRepository userRepository, RoleRepository roleRepository,
+                             ApplicationRepository applicationRepository, PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
+        this.applicationRepository = applicationRepository;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -44,11 +49,13 @@ public class AdminUserService {
 
     @Transactional
     public AdminUserResponse create(AdminCreateUserRequest request) {
-        if (userRepository.existsByEmail(request.email())) {
+        Application application = applicationRepository.findById(request.applicationId())
+                .orElseThrow(() -> new NotFoundException("Aplicacion no encontrada: " + request.applicationId()));
+        if (userRepository.existsByApplicationIdAndEmail(application.getId(), request.email())) {
             throw new UserAlreadyExistsException("Ya existe una cuenta con ese email");
         }
-        Set<Role> roles = resolveRoles(request.roles());
-        User user = new User(request.email(), passwordEncoder.encode(request.password()), roles);
+        Set<Role> roles = resolveRoles(application.getId(), request.roles());
+        User user = new User(request.email(), passwordEncoder.encode(request.password()), roles, application);
         return AdminUserResponse.of(userRepository.save(user));
     }
 
@@ -67,7 +74,9 @@ public class AdminUserService {
     @Transactional
     public AdminUserResponse replaceRoles(UUID id, AdminAssignRolesRequest request) {
         User user = findUserOrThrow(id);
-        user.setRoles(resolveRoles(request.roles()));
+        // Roles se resuelven scoped a la aplicacion DEL USUARIO, no elegible por el caller —
+        // consistente con no permitir reasignar la aplicacion de un usuario existente.
+        user.setRoles(resolveRoles(user.getApplication().getId(), request.roles()));
         return AdminUserResponse.of(userRepository.save(user));
     }
 
@@ -84,9 +93,9 @@ public class AdminUserService {
                 .orElseThrow(() -> new NotFoundException("Usuario no encontrado: " + id));
     }
 
-    private Set<Role> resolveRoles(Set<String> names) {
+    private Set<Role> resolveRoles(UUID applicationId, Set<String> names) {
         return names.stream()
-                .map(name -> roleRepository.findByName(name)
+                .map(name -> roleRepository.findByApplicationIdAndName(applicationId, name)
                         .orElseThrow(() -> new NotFoundException("Rol no encontrado: " + name)))
                 .collect(Collectors.toSet());
     }

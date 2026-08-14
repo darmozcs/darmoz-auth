@@ -26,6 +26,7 @@
 
 <script>
 const AUTH_BASE = '/auth';
+const SYSTEM_API_ID = '11111111-1111-1111-1111-111111111111';
 
 sessionStorage.removeItem('darmoz_admin_session');
 
@@ -41,7 +42,7 @@ document.getElementById('login-form').addEventListener('submit', async (event) =
   try {
     const response = await fetch(`${AUTH_BASE}/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'API_ID': SYSTEM_API_ID },
       body: JSON.stringify({ email, password }),
     });
 
