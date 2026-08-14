@@ -87,9 +87,10 @@ public class AuthService {
                 user.setEnabled(true);
                 userRepository.save(user);
             } else {
-                Role defaultRole = roleRepository.findByApplicationIdAndName(application.getId(), DEFAULT_ROLE)
+                UUID applicationId = application.getId();
+                Role defaultRole = roleRepository.findByApplicationIdAndName(applicationId, DEFAULT_ROLE)
                         .orElseThrow(() -> new IllegalStateException(
-                                "Rol base '" + DEFAULT_ROLE + "' no existe para la aplicacion " + application.getId()));
+                                "Rol base '" + DEFAULT_ROLE + "' no existe para la aplicacion " + applicationId));
                 user = new User(request.email(), passwordEncoder.encode(request.password()), Set.of(defaultRole), application);
                 userRepository.save(user);
             }
