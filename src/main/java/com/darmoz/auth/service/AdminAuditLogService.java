@@ -41,8 +41,9 @@ public class AdminAuditLogService {
         OffsetDateTime fromInstant = from == null ? null : from.atStartOfDay().atOffset(ZoneOffset.UTC);
         OffsetDateTime toInstant = to == null ? null : to.atTime(LocalTime.MAX).atOffset(ZoneOffset.UTC);
 
+        String actionFilter = action == null ? null : action.name();
         Page<AuditLogResponse> result = authAuditLogRepository
-                .search(action, applicationId, emailFilter, fromInstant, toInstant, pageable)
+                .search(actionFilter, applicationId, emailFilter, fromInstant, toInstant, pageable)
                 .map(AuditLogResponse::of);
         return PageResponse.of(result);
     }
