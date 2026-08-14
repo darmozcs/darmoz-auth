@@ -21,6 +21,12 @@ public class AdminAuditLogService {
 
     private static final int MAX_PAGE_SIZE = 200;
 
+    // from/to nunca viajan null al repositorio (ver comentario en AuthAuditLogRepository):
+    // limites bien lejos de cualquier dato real, para que "sin filtro de fecha" sea "todo el
+    // rango posible" en vez de depender de un chequeo IS NULL ambiguo para Postgres.
+    private static final OffsetDateTime MIN_TIMESTAMP = OffsetDateTime.of(1970, 1, 1, 0, 0, 0, 0, ZoneOffset.UTC);
+    private static final OffsetDateTime MAX_TIMESTAMP = OffsetDateTime.of(2999, 12, 31, 23, 59, 59, 0, ZoneOffset.UTC);
+
     private final AuthAuditLogRepository authAuditLogRepository;
 
     public AdminAuditLogService(AuthAuditLogRepository authAuditLogRepository) {
@@ -38,8 +44,8 @@ public class AdminAuditLogService {
         Pageable pageable = PageRequest.of(boundedPage, boundedSize);
 
         String emailFilter = (email == null || email.isBlank()) ? null : email;
-        OffsetDateTime fromInstant = from == null ? null : from.atStartOfDay().atOffset(ZoneOffset.UTC);
-        OffsetDateTime toInstant = to == null ? null : to.atTime(LocalTime.MAX).atOffset(ZoneOffset.UTC);
+        OffsetDateTime fromInstant = from == null ? MIN_TIMESTAMP : from.atStartOfDay().atOffset(ZoneOffset.UTC);
+        OffsetDateTime toInstant = to == null ? MAX_TIMESTAMP : to.atTime(LocalTime.MAX).atOffset(ZoneOffset.UTC);
 
         String actionFilter = action == null ? null : action.name();
         Page<AuditLogResponse> result = authAuditLogRepository

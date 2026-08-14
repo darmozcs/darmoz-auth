@@ -13,20 +13,23 @@ import java.util.UUID;
 public interface AuthAuditLogRepository extends JpaRepository<AuthAuditLog, UUID> {
 
     // Query nativa (no JPQL) a proposito: Postgres tipa la query en el parseo, antes de conocer
-    // los valores reales, asi que cada parametro opcional usado en un patron "IS NULL OR ..."
-    // necesita un tipo sin ambiguedad. "=" contra una columna text/varchar resuelve el tipo
-    // "unknown" del parametro implicitamente, pero ">="/"<=" contra timestamptz no tiene esa
-    // coercion implicita y falla con "could not determine data type of parameter" si no se
-    // castea. Casteando UNA sola ocurrencia de cada parametro nombrado alcanza (Postgres/pgjdbc
-    // resuelve todas las ocurrencias del mismo parametro al mismo tipo), pero se castean todas
-    // por consistencia/robustez ante futuros cambios en la query.
+    // los valores reales. Cada ocurrencia de "?" es un parametro independiente para Postgres
+    // (no comparten tipo entre si aunque vengan del mismo :nombre) asi que un patron bare
+    // "? IS NULL" sin ningun otro uso que le de contexto de tipo falla con "could not determine
+    // data type of parameter", sin importar que OTRA ocurrencia del mismo parametro si tenga un
+    // CAST. Para action/applicationId/email esto no pasa porque "=" contra una columna
+    // text/uuid resuelve el tipo del "unknown" implicitamente incluso para el chequeo IS NULL;
+    // para from/to (comparados con >=/<=) esa coercion implicita no existe. En vez de seguir
+    // peleando con el patron "IS NULL OR", from/to nunca viajan null: AdminAuditLogService les
+    // pone limites (1970 / año 2999) cuando no hay filtro, asi el parametro es siempre un
+    // OffsetDateTime concreto comparado directo contra la columna, sin ambiguedad posible.
     @Query(value = """
             SELECT * FROM auth_audit_log a
             WHERE (:action IS NULL OR a.action = CAST(:action AS varchar))
               AND (:applicationId IS NULL OR a.application_id = CAST(:applicationId AS uuid))
               AND (:email IS NULL OR LOWER(a.user_email) LIKE LOWER(CONCAT('%', CAST(:email AS varchar), '%')))
-              AND (:from IS NULL OR a.occurred_at >= CAST(:from AS timestamptz))
-              AND (:to IS NULL OR a.occurred_at <= CAST(:to AS timestamptz))
+              AND a.occurred_at >= :from
+              AND a.occurred_at <= :to
             ORDER BY a.occurred_at DESC
             """,
             countQuery = """
@@ -34,8 +37,8 @@ public interface AuthAuditLogRepository extends JpaRepository<AuthAuditLog, UUID
             WHERE (:action IS NULL OR a.action = CAST(:action AS varchar))
               AND (:applicationId IS NULL OR a.application_id = CAST(:applicationId AS uuid))
               AND (:email IS NULL OR LOWER(a.user_email) LIKE LOWER(CONCAT('%', CAST(:email AS varchar), '%')))
-              AND (:from IS NULL OR a.occurred_at >= CAST(:from AS timestamptz))
-              AND (:to IS NULL OR a.occurred_at <= CAST(:to AS timestamptz))
+              AND a.occurred_at >= :from
+              AND a.occurred_at <= :to
             """,
             nativeQuery = true)
     Page<AuthAuditLog> search(@Param("action") String action,
