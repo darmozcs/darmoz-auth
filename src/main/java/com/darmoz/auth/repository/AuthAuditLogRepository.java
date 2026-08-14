@@ -17,7 +17,7 @@ public interface AuthAuditLogRepository extends JpaRepository<AuthAuditLog, UUID
             SELECT a FROM AuthAuditLog a
             WHERE (:action IS NULL OR a.action = :action)
               AND (:applicationId IS NULL OR a.applicationId = :applicationId)
-              AND (:email IS NULL OR LOWER(a.userEmail) LIKE LOWER(CONCAT('%', :email, '%')))
+              AND (:email IS NULL OR LOWER(a.userEmail) LIKE LOWER(CONCAT('%', CAST(:email AS string), '%')))
               AND (:from IS NULL OR a.occurredAt >= :from)
               AND (:to IS NULL OR a.occurredAt <= :to)
             ORDER BY a.occurredAt DESC
@@ -26,7 +26,7 @@ public interface AuthAuditLogRepository extends JpaRepository<AuthAuditLog, UUID
             SELECT COUNT(a) FROM AuthAuditLog a
             WHERE (:action IS NULL OR a.action = :action)
               AND (:applicationId IS NULL OR a.applicationId = :applicationId)
-              AND (:email IS NULL OR LOWER(a.userEmail) LIKE LOWER(CONCAT('%', :email, '%')))
+              AND (:email IS NULL OR LOWER(a.userEmail) LIKE LOWER(CONCAT('%', CAST(:email AS string), '%')))
               AND (:from IS NULL OR a.occurredAt >= :from)
               AND (:to IS NULL OR a.occurredAt <= :to)
             """)
