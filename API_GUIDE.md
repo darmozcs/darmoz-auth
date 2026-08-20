@@ -304,10 +304,16 @@ entre 8 y 100 caracteres.
 | `400` | falta `API_ID`, o campos vacíos | validación |
 | `404` | `API_ID` no corresponde a ninguna aplicación | `{"message": "Aplicacion no encontrada", ...}` |
 | `401` | email no existe **en esa aplicación**, password incorrecta, o cuenta deshabilitada (`enabled=false`) | `{"message": "Email o password invalidos", ...}` |
+| `403` | el email del usuario todavía no está verificado y ya se agotó la cantidad de logins de gracia de la aplicación (`unverified_login_limit`, default `0`) | `{"error": "EMAIL_NOT_VERIFIED", "message": "Debes verificar tu email antes de iniciar sesion", ...}` |
 
 Nota: el mensaje es idéntico para "no existe", "password mal" y "cuenta
 deshabilitada" — deliberado, para no filtrar si un email está registrado. Un
 email registrado en **otra** aplicación tampoco se distingue de "no existe".
+
+El caso `EMAIL_NOT_VERIFIED` es el único error de este endpoint pensado para
+que el cliente lo distinga programáticamente por el campo `error` (no solo
+por el status) — ver `POST /auth/verify-email/request` más abajo para
+iniciar la verificación.
 
 ---
 
@@ -452,6 +458,62 @@ Sin body.
 
 ---
 
+### `POST /auth/verify-email/request`
+
+Genera un código numérico de 6 dígitos, invalida cualquier código activo
+previo del usuario, lo persiste (solo el hash) y lo envía por email vía
+darmoz-mail (`accion: "VERIFY"`). Pensado para llamarse justo después de
+`/register`, y para reenvíos ("no me llegó el código").
+
+**Headers:**
+- `API_ID: <uuid>` — requerido.
+- `Authorization: Bearer <accessToken>` — **requerido**.
+
+Sin body.
+
+**204 No Content** en éxito (el código se manda por email, no se devuelve
+en la respuesta).
+
+**Errores:**
+| Status | Body `message`/`error` | Causa |
+|---|---|---|
+| `400` | — | falta `API_ID` o `Authorization` |
+| `404` | `Aplicacion no encontrada` | `API_ID` inválido/inexistente |
+| `403` | `El access token no pertenece a la aplicacion indicada` | el token es de un usuario de otra aplicación |
+| `404` | `Usuario no encontrado` | el usuario del token ya no existe |
+| `409` | `El email ya esta verificado` | no hace falta pedir un código nuevo |
+| `502` | — | falló el envío hacia darmoz-mail (red caída o respuesta de error) |
+
+---
+
+### `POST /auth/verify-email/confirm`
+
+Confirma el código recibido por email. Si es válido (no expiró, no fue
+consumido ya), marca al usuario como `email_verified=true` y resetea su
+contador de logins sin verificar.
+
+**Headers:**
+- `API_ID: <uuid>` — requerido.
+- `Authorization: Bearer <accessToken>` — **requerido**.
+
+**Body:**
+```json
+{ "code": "482913" }
+```
+
+**204 No Content** en éxito.
+
+**Errores:**
+| Status | Body `message`/`error` | Causa |
+|---|---|---|
+| `400` | validación | `code` ausente o no son 6 dígitos |
+| `400` | `Codigo invalido o expirado` | no coincide con el código activo, o ya venció (TTL configurable, default 15 min) |
+| `404` | `Aplicacion no encontrada` | `API_ID` inválido/inexistente |
+| `403` | `El access token no pertenece a la aplicacion indicada` | el token es de un usuario de otra aplicación |
+| `409` | `El email ya esta verificado` | ya se había confirmado antes |
+
+---
+
 ## 7. Formato de error genérico
 
 Todos los errores (`400`, `403`, `404`, `409`, etc.) que no sean de
@@ -563,6 +625,9 @@ comportamiento observado en cada entorno:
 | `JWT_ACCESS_TOKEN_TTL_SECONDS` | `720` (12 min) | Vida del access token. |
 | `JWT_REFRESH_TOKEN_TTL_DAYS` | `30` | Vida del refresh token. |
 | `JWT_ISSUER` | `darmoz-auth` | Claim `iss` del JWT. |
+| `EMAIL_VERIFICATION_CODE_TTL_MINUTES` | `15` | Vigencia del código de `/verify-email/request`. |
+| `DARMOZ_MAIL_BASE_URL` | `http://localhost:8081/darmoz-mail` | Base URL de darmoz-mail (incluye context-path). |
+| `DARMOZ_MAIL_CLIENT_ID` | (uuid fijo del client application de darmoz-auth en darmoz-mail) | Header `X-Client-Id` al llamar `POST /emails`. |
 
 Ver [`deploy/.env.example`](deploy/.env.example) para el resto de la
 configuración de infraestructura (no relevante para un cliente de la API).

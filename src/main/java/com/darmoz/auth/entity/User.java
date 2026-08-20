@@ -33,6 +33,12 @@ public class User {
     @Column(nullable = false)
     private boolean enabled = true;
 
+    @Column(name = "email_verified", nullable = false)
+    private boolean emailVerified = false;
+
+    @Column(name = "unverified_login_count", nullable = false)
+    private int unverifiedLoginCount = 0;
+
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "application_id", nullable = false)
     private Application application;
@@ -95,6 +101,22 @@ public class User {
 
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public boolean isEmailVerified() {
+        return emailVerified;
+    }
+
+    public void setEmailVerified(boolean emailVerified) {
+        this.emailVerified = emailVerified;
+    }
+
+    public int getUnverifiedLoginCount() {
+        return unverifiedLoginCount;
+    }
+
+    public void setUnverifiedLoginCount(int unverifiedLoginCount) {
+        this.unverifiedLoginCount = unverifiedLoginCount;
     }
 
     public Application getApplication() {

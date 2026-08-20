@@ -14,6 +14,7 @@ import com.darmoz.auth.entity.Role;
 import com.darmoz.auth.entity.RevokedAccessToken;
 import com.darmoz.auth.entity.User;
 import com.darmoz.auth.exception.ApplicationMismatchException;
+import com.darmoz.auth.exception.EmailNotVerifiedException;
 import com.darmoz.auth.exception.InvalidCredentialsException;
 import com.darmoz.auth.exception.NotFoundException;
 import com.darmoz.auth.exception.UserAlreadyExistsException;
@@ -50,6 +51,7 @@ public class AuthService {
     private final RefreshTokenService refreshTokenService;
     private final PermissionService permissionService;
     private final AuditLogService auditLogService;
+    private final EmailVerificationService emailVerificationService;
 
     public AuthService(UserRepository userRepository,
                         RoleRepository roleRepository,
@@ -59,7 +61,8 @@ public class AuthService {
                         JwtService jwtService,
                         RefreshTokenService refreshTokenService,
                         PermissionService permissionService,
-                        AuditLogService auditLogService) {
+                        AuditLogService auditLogService,
+                        EmailVerificationService emailVerificationService) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.applicationRepository = applicationRepository;
@@ -69,6 +72,7 @@ public class AuthService {
         this.refreshTokenService = refreshTokenService;
         this.permissionService = permissionService;
         this.auditLogService = auditLogService;
+        this.emailVerificationService = emailVerificationService;
     }
 
     @Transactional
@@ -116,6 +120,15 @@ public class AuthService {
             if (!user.isEnabled() || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
                 throw new InvalidCredentialsException("Email o password invalidos");
             }
+
+            if (!user.isEmailVerified()) {
+                if (user.getUnverifiedLoginCount() >= application.getUnverifiedLoginLimit()) {
+                    throw new EmailNotVerifiedException("Debes verificar tu email antes de iniciar sesion");
+                }
+                user.setUnverifiedLoginCount(user.getUnverifiedLoginCount() + 1);
+                userRepository.save(user);
+            }
+
             AuthResponse response = issueTokens(user);
             auditLogService.record(AuditAction.LOGIN, application, user.getEmail(), AuditResult.SUCCESS, null, metadata);
             return response;
@@ -254,6 +267,63 @@ public class AuthService {
             auditLogService.record(AuditAction.DISABLE, application, user.getEmail(), AuditResult.SUCCESS, null, metadata);
         } catch (RuntimeException e) {
             auditLogService.record(AuditAction.DISABLE, application, email, AuditResult.FAILURE, e.getMessage(), metadata);
+            throw e;
+        }
+    }
+
+    @Transactional
+    public void requestEmailVerification(String apiId, String accessToken, RequestMetadata metadata) {
+        Application application = null;
+        String email = null;
+        try {
+            application = requireApplication(apiId);
+
+            JwtService.ParsedAccessToken parsed = jwtService.parse(accessToken);
+            email = parsed.email();
+            if (parsed.applicationId() == null || !parsed.applicationId().equals(application.getId())) {
+                throw new ApplicationMismatchException("El access token no pertenece a la aplicacion indicada");
+            }
+
+            User user = userRepository.findById(parsed.userId())
+                    .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
+
+            emailVerificationService.generateAndSend(user);
+
+            auditLogService.record(AuditAction.REQUEST_EMAIL_VERIFICATION, application, user.getEmail(),
+                    AuditResult.SUCCESS, null, metadata);
+        } catch (RuntimeException e) {
+            auditLogService.record(AuditAction.REQUEST_EMAIL_VERIFICATION, application, email,
+                    AuditResult.FAILURE, e.getMessage(), metadata);
+            throw e;
+        }
+    }
+
+    @Transactional
+    public void confirmEmailVerification(String apiId, String accessToken, String code, RequestMetadata metadata) {
+        Application application = null;
+        String email = null;
+        try {
+            application = requireApplication(apiId);
+
+            JwtService.ParsedAccessToken parsed = jwtService.parse(accessToken);
+            email = parsed.email();
+            if (parsed.applicationId() == null || !parsed.applicationId().equals(application.getId())) {
+                throw new ApplicationMismatchException("El access token no pertenece a la aplicacion indicada");
+            }
+
+            User user = userRepository.findById(parsed.userId())
+                    .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
+
+            emailVerificationService.confirm(user, code);
+            user.setEmailVerified(true);
+            user.setUnverifiedLoginCount(0);
+            userRepository.save(user);
+
+            auditLogService.record(AuditAction.CONFIRM_EMAIL_VERIFICATION, application, user.getEmail(),
+                    AuditResult.SUCCESS, null, metadata);
+        } catch (RuntimeException e) {
+            auditLogService.record(AuditAction.CONFIRM_EMAIL_VERIFICATION, application, email,
+                    AuditResult.FAILURE, e.getMessage(), metadata);
             throw e;
         }
     }

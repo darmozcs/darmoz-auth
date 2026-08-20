@@ -60,6 +60,11 @@ class AuthControllerIT extends AbstractIntegrationTest {
         rolePermissionRepository.deleteAll();
         Application application = applicationRepository.findByName("Laryon").orElseThrow();
         applicationId = application.getId();
+        // Este test ejercita el lifecycle general de auth (no verificacion de email), asi que
+        // se sube el limite de logins sin verificar para que /login no quede bloqueado con
+        // EMAIL_NOT_VERIFIED — ese flujo se cubre aparte en EmailVerificationControllerIT.
+        application.setUnverifiedLoginLimit(Integer.MAX_VALUE);
+        applicationRepository.save(application);
         Role userRole = roleRepository.findByApplicationIdAndName(applicationId, "USER").orElseThrow();
         rolePermissionRepository.save(new RolePermission(userRole, "nexora-api", "GET", "/api/products/**"));
         expectedPermission = new PermissionDto("nexora-api", "GET", "/api/products/**");

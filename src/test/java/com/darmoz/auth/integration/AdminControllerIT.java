@@ -61,11 +61,19 @@ class AdminControllerIT extends AbstractIntegrationTest {
     void seedSuperUser() {
         Application systemApplication = applicationRepository.findById(SuperAdminBootstrap.SYSTEM_APPLICATION_ID).orElseThrow();
         laryonApplication = applicationRepository.findByName("Laryon").orElseThrow();
+        // Estos tests no son sobre verificacion de email: se sube el limite de logins sin
+        // verificar para que /login no quede bloqueado con EMAIL_NOT_VERIFIED.
+        laryonApplication.setUnverifiedLoginLimit(Integer.MAX_VALUE);
+        applicationRepository.save(laryonApplication);
 
         Role superRole = roleRepository.findByApplicationIdAndName(systemApplication.getId(), "SUPER").orElseThrow();
         String email = "super-" + UUID.randomUUID() + "@darmoz.com";
         String password = "Super1234!";
-        userRepository.save(new User(email, passwordEncoder.encode(password), Set.of(superRole), systemApplication));
+        User superUser = new User(email, passwordEncoder.encode(password), Set.of(superRole), systemApplication);
+        // Se crea directamente via repository (no pasa por /register): es la cuenta admin de
+        // bootstrap, se considera ya verificada.
+        superUser.setEmailVerified(true);
+        userRepository.save(superUser);
 
         ResponseEntity<AuthResponse> login = restTemplate.exchange(
                 "/auth/login", HttpMethod.POST,

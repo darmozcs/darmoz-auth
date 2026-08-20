@@ -1,5 +1,6 @@
 package com.darmoz.auth.service;
 
+import com.darmoz.auth.repository.EmailVerificationTokenRepository;
 import com.darmoz.auth.repository.RefreshTokenRepository;
 import com.darmoz.auth.repository.RevokedAccessTokenRepository;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -13,11 +14,14 @@ public class TokenCleanupService {
 
     private final RefreshTokenRepository refreshTokenRepository;
     private final RevokedAccessTokenRepository revokedAccessTokenRepository;
+    private final EmailVerificationTokenRepository emailVerificationTokenRepository;
 
     public TokenCleanupService(RefreshTokenRepository refreshTokenRepository,
-                                RevokedAccessTokenRepository revokedAccessTokenRepository) {
+                                RevokedAccessTokenRepository revokedAccessTokenRepository,
+                                EmailVerificationTokenRepository emailVerificationTokenRepository) {
         this.refreshTokenRepository = refreshTokenRepository;
         this.revokedAccessTokenRepository = revokedAccessTokenRepository;
+        this.emailVerificationTokenRepository = emailVerificationTokenRepository;
     }
 
     @Transactional
@@ -26,5 +30,6 @@ public class TokenCleanupService {
         OffsetDateTime now = OffsetDateTime.now();
         refreshTokenRepository.deleteAllByExpiresAtBefore(now);
         revokedAccessTokenRepository.deleteAllByExpiresAtBefore(now);
+        emailVerificationTokenRepository.deleteAllByExpiresAtBefore(now);
     }
 }

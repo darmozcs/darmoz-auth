@@ -34,6 +34,14 @@ jwt:
   refresh-token-ttl-days: ${JWT_REFRESH_TOKEN_TTL_DAYS:30}
   issuer: ${JWT_ISSUER:darmoz-auth}
 
+darmoz:
+  mail:
+    base-url: ${DARMOZ_MAIL_BASE_URL:http://localhost:8081/darmoz-mail}
+    client-id: ${DARMOZ_MAIL_CLIENT_ID:5e6a88c0-01bb-455b-963a-81965e3a7b6d}
+
+email-verification:
+  code-ttl-minutes: ${EMAIL_VERIFICATION_CODE_TTL_MINUTES:15}
+
 management:
   endpoints:
     web:

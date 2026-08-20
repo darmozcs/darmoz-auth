@@ -1,5 +1,6 @@
 package com.darmoz.auth.dto.request;
 
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 
 public record AdminCreateApplicationRequest(
@@ -8,6 +9,8 @@ public record AdminCreateApplicationRequest(
 
         @NotBlank String name,
 
-        String description
+        String description,
+
+        @Min(0) Integer unverifiedLoginLimit
 ) {
 }

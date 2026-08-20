@@ -6,5 +6,7 @@ public enum AuditAction {
     REGISTER,
     REFRESH,
     VERIFY,
-    DISABLE
+    DISABLE,
+    REQUEST_EMAIL_VERIFICATION,
+    CONFIRM_EMAIL_VERIFICATION
 }

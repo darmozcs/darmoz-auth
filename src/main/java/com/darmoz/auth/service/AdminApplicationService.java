@@ -54,6 +54,7 @@ public class AdminApplicationService {
             throw new ConflictException("Ya existe una aplicacion con ese nombre");
         }
         Application application = new Application(request.serviceName(), request.name(), request.description());
+        application.setUnverifiedLoginLimit(request.unverifiedLoginLimit() == null ? 0 : request.unverifiedLoginLimit());
         applicationRepository.save(application);
         roleRepository.save(new Role(DEFAULT_ROLE, DEFAULT_ROLE_DESCRIPTION, application));
         return ApplicationResponse.of(application);
@@ -73,6 +74,9 @@ public class AdminApplicationService {
         }
         if (request.description() != null) {
             application.setDescription(request.description());
+        }
+        if (request.unverifiedLoginLimit() != null) {
+            application.setUnverifiedLoginLimit(request.unverifiedLoginLimit());
         }
         return ApplicationResponse.of(applicationRepository.save(application));
     }

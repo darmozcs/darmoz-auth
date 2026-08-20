@@ -74,6 +74,11 @@ public class SuperAdminBootstrap implements ApplicationRunner {
         Role superRole = roleRepository.findByApplicationIdAndName(systemApplication.getId(), SUPER_ROLE)
                 .orElseThrow(() -> new IllegalStateException("Rol '" + SUPER_ROLE + "' no existe; falta la migracion de seed"));
         User superUser = new User(superAdminEmail, passwordEncoder.encode(superAdminPassword), Set.of(superRole), systemApplication);
+        // Cuenta de bootstrap creada a partir de variables de entorno del propio operador,
+        // no de un self-registro publico: se considera ya verificada, si no quedaria
+        // bloqueada por EMAIL_NOT_VERIFIED en el primer /login (unverified_login_limit
+        // default es 0).
+        superUser.setEmailVerified(true);
         userRepository.save(superUser);
         log.info("Usuario SUPER creado: {}", superAdminEmail);
     }

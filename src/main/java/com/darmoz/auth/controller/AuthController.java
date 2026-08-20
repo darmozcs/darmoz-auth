@@ -1,6 +1,7 @@
 package com.darmoz.auth.controller;
 
 import com.darmoz.auth.dto.RequestMetadata;
+import com.darmoz.auth.dto.request.ConfirmEmailVerificationRequest;
 import com.darmoz.auth.dto.request.LoginRequest;
 import com.darmoz.auth.dto.request.LogoutRequest;
 import com.darmoz.auth.dto.request.RefreshRequest;
@@ -79,6 +80,27 @@ public class AuthController {
                                          @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
                                          HttpServletRequest httpRequest) {
         authService.disableCurrentUser(apiId, extractBearerToken(authorizationHeader),
+                RequestMetadata.from(httpRequest));
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/verify-email/request")
+    public ResponseEntity<Void> requestEmailVerification(
+            @RequestHeader(API_ID_HEADER) String apiId,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
+            HttpServletRequest httpRequest) {
+        authService.requestEmailVerification(apiId, extractBearerToken(authorizationHeader),
+                RequestMetadata.from(httpRequest));
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/verify-email/confirm")
+    public ResponseEntity<Void> confirmEmailVerification(
+            @RequestHeader(API_ID_HEADER) String apiId,
+            @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
+            @Valid @RequestBody ConfirmEmailVerificationRequest request,
+            HttpServletRequest httpRequest) {
+        authService.confirmEmailVerification(apiId, extractBearerToken(authorizationHeader), request.code(),
                 RequestMetadata.from(httpRequest));
         return ResponseEntity.noContent().build();
     }

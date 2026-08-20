@@ -10,10 +10,12 @@ public record ApplicationResponse(
         String serviceName,
         String name,
         String description,
+        int unverifiedLoginLimit,
         OffsetDateTime createdAt
 ) {
     public static ApplicationResponse of(Application application) {
         return new ApplicationResponse(application.getId(), application.getServiceName(),
-                application.getName(), application.getDescription(), application.getCreatedAt());
+                application.getName(), application.getDescription(), application.getUnverifiedLoginLimit(),
+                application.getCreatedAt());
     }
 }

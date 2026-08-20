@@ -29,6 +29,9 @@ public class Application {
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
+    @Column(name = "unverified_login_limit", nullable = false)
+    private int unverifiedLoginLimit = 0;
+
     protected Application() {
     }
 
@@ -79,6 +82,14 @@ public class Application {
 
     public OffsetDateTime getCreatedAt() {
         return createdAt;
+    }
+
+    public int getUnverifiedLoginLimit() {
+        return unverifiedLoginLimit;
+    }
+
+    public void setUnverifiedLoginLimit(int unverifiedLoginLimit) {
+        this.unverifiedLoginLimit = unverifiedLoginLimit;
     }
 
     @Override

@@ -56,6 +56,10 @@ public class AdminUserService {
         }
         Set<Role> roles = resolveRoles(application.getId(), request.roles());
         User user = new User(request.email(), passwordEncoder.encode(request.password()), roles, application);
+        // Creado por un admin (no self-registro publico via /register): se considera ya
+        // verificado, si no quedaria potencialmente bloqueado por EMAIL_NOT_VERIFIED en su
+        // primer /login.
+        user.setEmailVerified(true);
         return AdminUserResponse.of(userRepository.save(user));
     }
 
