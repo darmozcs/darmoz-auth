@@ -160,7 +160,8 @@ public class AuthService {
             List<PermissionDto> permissions = permissionService.resolve(user.getRoles());
             JwtService.IssuedAccessToken accessToken = jwtService.generateAccessToken(user, permissions);
             AuthResponse response = AuthResponse.of(user.getId(), user.getEmail(), roleNames(user), permissions,
-                    accessToken.token(), rotation.rawToken(), accessToken.expiresAt().getEpochSecond() - Instant.now().getEpochSecond());
+                    accessToken.token(), rotation.rawToken(), accessToken.expiresAt().getEpochSecond() - Instant.now().getEpochSecond(),
+                    user.isEmailVerified(), user.getApplication().getUnverifiedLoginLimit(), user.getUnverifiedLoginCount());
             auditLogService.record(AuditAction.REFRESH, application, email, AuditResult.SUCCESS, null, metadata);
             return response;
         } catch (RuntimeException e) {
@@ -355,7 +356,8 @@ public class AuthService {
         String refreshToken = refreshTokenService.issue(user);
         long expiresIn = accessToken.expiresAt().getEpochSecond() - Instant.now().getEpochSecond();
         return AuthResponse.of(user.getId(), user.getEmail(), roleNames(user), permissions,
-                accessToken.token(), refreshToken, expiresIn);
+                accessToken.token(), refreshToken, expiresIn,
+                user.isEmailVerified(), user.getApplication().getUnverifiedLoginLimit(), user.getUnverifiedLoginCount());
     }
 
     private Set<String> roleNames(User user) {

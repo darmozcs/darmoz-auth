@@ -12,10 +12,15 @@ public record AuthResponse(
         String accessToken,
         String refreshToken,
         String tokenType,
-        long expiresIn
+        long expiresIn,
+        boolean emailVerified,
+        int unverifiedLoginLimit,
+        int unverifiedLoginCount
 ) {
     public static AuthResponse of(UUID userId, String email, Set<String> roles, List<PermissionDto> permissions,
-                                   String accessToken, String refreshToken, long expiresInSeconds) {
-        return new AuthResponse(userId, email, roles, permissions, accessToken, refreshToken, "Bearer", expiresInSeconds);
+                                   String accessToken, String refreshToken, long expiresInSeconds,
+                                   boolean emailVerified, int unverifiedLoginLimit, int unverifiedLoginCount) {
+        return new AuthResponse(userId, email, roles, permissions, accessToken, refreshToken, "Bearer", expiresInSeconds,
+                emailVerified, unverifiedLoginLimit, unverifiedLoginCount);
     }
 }

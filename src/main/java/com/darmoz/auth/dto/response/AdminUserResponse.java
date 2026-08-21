@@ -12,6 +12,8 @@ public record AdminUserResponse(
         UUID id,
         String email,
         boolean enabled,
+        boolean emailVerified,
+        int unverifiedLoginCount,
         UUID applicationId,
         String applicationName,
         Set<String> roles,
@@ -21,6 +23,7 @@ public record AdminUserResponse(
     public static AdminUserResponse of(User user) {
         Set<String> roleNames = user.getRoles().stream().map(Role::getName).collect(Collectors.toSet());
         return new AdminUserResponse(user.getId(), user.getEmail(), user.isEnabled(),
+                user.isEmailVerified(), user.getUnverifiedLoginCount(),
                 user.getApplication().getId(), user.getApplication().getName(), roleNames,
                 user.getCreatedAt(), user.getUpdatedAt());
     }
