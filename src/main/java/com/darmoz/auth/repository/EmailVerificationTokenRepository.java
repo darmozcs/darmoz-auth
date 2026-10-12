@@ -15,8 +15,12 @@ public interface EmailVerificationTokenRepository extends JpaRepository<EmailVer
 
     List<EmailVerificationToken> findAllByUserIdAndConsumedAtIsNullAndExpiresAtAfter(UUID userId, OffsetDateTime now);
 
-    Optional<EmailVerificationToken> findByUserIdAndCodeHashAndConsumedAtIsNullAndExpiresAtAfter(
-            UUID userId, String codeHash, OffsetDateTime now);
+    /** Codigo activo (no consumido, no vencido) mas reciente del usuario. */
+    Optional<EmailVerificationToken> findFirstByUserIdAndConsumedAtIsNullAndExpiresAtAfterOrderByCreatedAtDesc(
+            UUID userId, OffsetDateTime now);
+
+    /** Ultimo codigo emitido al usuario (en cualquier estado), para el throttle de reenvio. */
+    Optional<EmailVerificationToken> findFirstByUserIdOrderByCreatedAtDesc(UUID userId);
 
     @Modifying
     @Query("DELETE FROM EmailVerificationToken t WHERE t.expiresAt < :cutoff")

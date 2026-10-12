@@ -1,6 +1,9 @@
 package com.darmoz.auth.service;
 
 import com.darmoz.auth.dto.RequestMetadata;
+import com.darmoz.auth.dto.request.ChangePasswordRequest;
+import com.darmoz.auth.dto.request.ConfirmEmailWithCredentialsRequest;
+import com.darmoz.auth.dto.request.CredentialsRequest;
 import com.darmoz.auth.dto.request.LoginRequest;
 import com.darmoz.auth.dto.request.RefreshRequest;
 import com.darmoz.auth.dto.request.RegisterRequest;
@@ -16,6 +19,8 @@ import com.darmoz.auth.entity.User;
 import com.darmoz.auth.exception.ApplicationMismatchException;
 import com.darmoz.auth.exception.EmailNotVerifiedException;
 import com.darmoz.auth.exception.InvalidCredentialsException;
+import com.darmoz.auth.exception.InvalidCurrentPasswordException;
+import com.darmoz.auth.exception.InvalidRefreshTokenException;
 import com.darmoz.auth.exception.NotFoundException;
 import com.darmoz.auth.exception.UserAlreadyExistsException;
 import com.darmoz.auth.repository.ApplicationRepository;
@@ -32,7 +37,6 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -41,6 +45,7 @@ import java.util.stream.Collectors;
 public class AuthService {
 
     private static final String DEFAULT_ROLE = "USER";
+    private static final String EMAIL_SEPARATOR = "@";
 
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
@@ -52,6 +57,7 @@ public class AuthService {
     private final PermissionService permissionService;
     private final AuditLogService auditLogService;
     private final EmailVerificationService emailVerificationService;
+    private final UserAccountService userAccountService;
 
     public AuthService(UserRepository userRepository,
                         RoleRepository roleRepository,
@@ -62,7 +68,8 @@ public class AuthService {
                         RefreshTokenService refreshTokenService,
                         PermissionService permissionService,
                         AuditLogService auditLogService,
-                        EmailVerificationService emailVerificationService) {
+                        EmailVerificationService emailVerificationService,
+                        UserAccountService userAccountService) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.applicationRepository = applicationRepository;
@@ -73,6 +80,7 @@ public class AuthService {
         this.permissionService = permissionService;
         this.auditLogService = auditLogService;
         this.emailVerificationService = emailVerificationService;
+        this.userAccountService = userAccountService;
     }
 
     @Transactional
@@ -81,23 +89,18 @@ public class AuthService {
         try {
             application = requireApplication(apiId);
 
-            User user;
-            Optional<User> existing = userRepository.findByApplicationIdAndEmail(application.getId(), request.email());
-            if (existing.isPresent()) {
-                user = existing.get();
-                if (user.isEnabled()) {
-                    throw new UserAlreadyExistsException("Ya existe una cuenta con ese email");
-                }
-                user.setEnabled(true);
-                userRepository.save(user);
-            } else {
-                UUID applicationId = application.getId();
-                Role defaultRole = roleRepository.findByApplicationIdAndName(applicationId, DEFAULT_ROLE)
-                        .orElseThrow(() -> new IllegalStateException(
-                                "Rol base '" + DEFAULT_ROLE + "' no existe para la aplicacion " + applicationId));
-                user = new User(request.email(), passwordEncoder.encode(request.password()), Set.of(defaultRole), application);
-                userRepository.save(user);
+            // Una cuenta existente nunca se reactiva desde /register, aunque este deshabilitada:
+            // eso permitiria a cualquiera que conozca el email revertir una baja hecha por un
+            // admin (y quedarse con la sesion del dueño original, que conserva su password).
+            if (userRepository.existsByApplicationIdAndEmail(application.getId(), request.email())) {
+                throw new UserAlreadyExistsException("Ya existe una cuenta con ese email");
             }
+            UUID applicationId = application.getId();
+            Role defaultRole = roleRepository.findByApplicationIdAndName(applicationId, DEFAULT_ROLE)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "Rol base '" + DEFAULT_ROLE + "' no existe para la aplicacion " + applicationId));
+            User user = new User(request.email(), passwordEncoder.encode(request.password()), Set.of(defaultRole), application);
+            userRepository.save(user);
 
             AuthResponse response = issueTokens(user);
             auditLogService.record(AuditAction.REGISTER, application, user.getEmail(), AuditResult.SUCCESS, null, metadata);
@@ -114,12 +117,11 @@ public class AuthService {
         try {
             application = requireApplication(apiId);
 
-            User user = userRepository.findByApplicationIdAndEmail(application.getId(), request.email())
+            User user = findLoginCandidates(application.getId(), request.email()).stream()
+                    .filter(candidate -> candidate.isEnabled()
+                            && passwordEncoder.matches(request.password(), candidate.getPasswordHash()))
+                    .findFirst()
                     .orElseThrow(() -> new InvalidCredentialsException("Email o password invalidos"));
-
-            if (!user.isEnabled() || !passwordEncoder.matches(request.password(), user.getPasswordHash())) {
-                throw new InvalidCredentialsException("Email o password invalidos");
-            }
 
             if (!user.isEmailVerified()) {
                 if (user.getUnverifiedLoginCount() >= application.getUnverifiedLoginLimit()) {
@@ -138,7 +140,25 @@ public class AuthService {
         }
     }
 
-    @Transactional
+    /**
+     * Solo para /login: ademas del email completo se acepta la parte anterior al "@"
+     * (ej. "ana" para "ana@gmail.com"). Si varios usuarios de la aplicacion comparten esa parte,
+     * se devuelven todos (en orden de alta) y entra el primero cuya password coincida.
+     */
+    private List<User> findLoginCandidates(UUID applicationId, String login) {
+        if (login.contains(EMAIL_SEPARATOR)) {
+            return userRepository.findByApplicationIdAndEmail(applicationId, login).stream().toList();
+        }
+        return userRepository.findAllByApplicationIdAndEmailStartingWithOrderByCreatedAtAsc(
+                applicationId, login + EMAIL_SEPARATOR);
+    }
+
+    /**
+     * noRollbackFor: varios rechazos revocan tokens antes de lanzar la excepcion (reuso de
+     * refresh token -> revocar todas las sesiones; aplicacion distinta; usuario deshabilitado).
+     * Si la excepcion hiciera rollback, esas revocaciones se perderian.
+     */
+    @Transactional(noRollbackFor = {InvalidRefreshTokenException.class, ApplicationMismatchException.class})
     public AuthResponse refresh(String apiId, RefreshRequest request, RequestMetadata metadata) {
         Application application = null;
         String email = null;
@@ -155,6 +175,12 @@ public class AuthService {
                 // una credencial usable pese a que esta request se rechaza.
                 refreshTokenService.revoke(rotation.rawToken());
                 throw new ApplicationMismatchException("El refresh token no pertenece a la aplicacion indicada");
+            }
+
+            if (!user.isEnabled()) {
+                // Incluye el refresh token recien rotado: no queda ninguna sesion usable.
+                refreshTokenService.revokeAllForUser(user.getId());
+                throw new InvalidRefreshTokenException("Usuario deshabilitado");
             }
 
             List<PermissionDto> permissions = permissionService.resolve(user.getRoles());
@@ -226,6 +252,11 @@ public class AuthService {
             if (parsed.applicationId() == null || !parsed.applicationId().equals(application.getId())) {
                 auditLogService.record(AuditAction.VERIFY, application, parsed.email(), AuditResult.FAILURE, "application_mismatch", metadata);
                 return VerifyResponse.invalid("application_mismatch");
+            }
+            boolean userActive = userRepository.findById(parsed.userId()).map(User::isEnabled).orElse(false);
+            if (!userActive) {
+                auditLogService.record(AuditAction.VERIFY, application, parsed.email(), AuditResult.FAILURE, "disabled", metadata);
+                return VerifyResponse.invalid("disabled");
             }
             auditLogService.record(AuditAction.VERIFY, application, parsed.email(), AuditResult.SUCCESS, null, metadata);
             return VerifyResponse.valid(parsed.userId(), parsed.email(), parsed.roles(),
@@ -327,6 +358,106 @@ public class AuthService {
                     AuditResult.FAILURE, e.getMessage(), metadata);
             throw e;
         }
+    }
+
+    /**
+     * Confirma el codigo de verificacion probando credenciales (email + password) en vez de un
+     * access token: un usuario sin verificar con unverified_login_limit agotado no puede obtener
+     * token (403 EMAIL_NOT_VERIFIED en /login). Si sale bien, el usuario queda verificado y
+     * logueado (mismo AuthResponse que /login).
+     */
+    @Transactional
+    public AuthResponse confirmEmailWithCredentials(String apiId, ConfirmEmailWithCredentialsRequest request,
+                                                    RequestMetadata metadata) {
+        Application application = null;
+        try {
+            application = requireApplication(apiId);
+            User user = authenticateCredentials(application, request.email(), request.password());
+
+            emailVerificationService.confirm(user, request.code());
+            user.setEmailVerified(true);
+            user.setUnverifiedLoginCount(0);
+            userRepository.save(user);
+
+            AuthResponse response = issueTokens(user);
+            auditLogService.record(AuditAction.CONFIRM_EMAIL_VERIFICATION, application, user.getEmail(),
+                    AuditResult.SUCCESS, null, metadata);
+            auditLogService.record(AuditAction.LOGIN, application, user.getEmail(), AuditResult.SUCCESS, null, metadata);
+            return response;
+        } catch (RuntimeException e) {
+            auditLogService.record(AuditAction.CONFIRM_EMAIL_VERIFICATION, application, request.email(),
+                    AuditResult.FAILURE, e.getMessage(), metadata);
+            throw e;
+        }
+    }
+
+    /** Reenvia el codigo de verificacion probando credenciales (email + password), sin Bearer. */
+    @Transactional
+    public void resendEmailVerificationWithCredentials(String apiId, CredentialsRequest request,
+                                                       RequestMetadata metadata) {
+        Application application = null;
+        try {
+            application = requireApplication(apiId);
+            User user = authenticateCredentials(application, request.email(), request.password());
+
+            emailVerificationService.generateAndSend(user);
+
+            auditLogService.record(AuditAction.REQUEST_EMAIL_VERIFICATION, application, user.getEmail(),
+                    AuditResult.SUCCESS, null, metadata);
+        } catch (RuntimeException e) {
+            auditLogService.record(AuditAction.REQUEST_EMAIL_VERIFICATION, application, request.email(),
+                    AuditResult.FAILURE, e.getMessage(), metadata);
+            throw e;
+        }
+    }
+
+    /**
+     * Cambia la password del usuario autenticado por el access token. Revoca todos sus refresh
+     * tokens y bloquea el access token actual: el cliente tiene que volver a loguearse.
+     */
+    @Transactional
+    public void changePassword(String apiId, String accessToken, ChangePasswordRequest request,
+                               RequestMetadata metadata) {
+        Application application = null;
+        String email = null;
+        try {
+            application = requireApplication(apiId);
+
+            JwtService.ParsedAccessToken parsed = jwtService.parse(accessToken);
+            email = parsed.email();
+            if (parsed.applicationId() == null || !parsed.applicationId().equals(application.getId())) {
+                throw new ApplicationMismatchException("El access token no pertenece a la aplicacion indicada");
+            }
+
+            User user = userRepository.findById(parsed.userId())
+                    .orElseThrow(() -> new NotFoundException("Usuario no encontrado"));
+            if (!user.isEnabled()) {
+                throw new InvalidCredentialsException("Usuario deshabilitado");
+            }
+            if (!userAccountService.passwordMatches(user, request.currentPassword())) {
+                throw new InvalidCurrentPasswordException("La contrasena actual no es correcta");
+            }
+
+            userAccountService.changePassword(user, request.newPassword());
+            blockAccessToken(parsed.jti(), parsed.expiresAt());
+
+            auditLogService.record(AuditAction.CHANGE_PASSWORD, application, user.getEmail(),
+                    AuditResult.SUCCESS, null, metadata);
+        } catch (RuntimeException e) {
+            auditLogService.record(AuditAction.CHANGE_PASSWORD, application, email,
+                    AuditResult.FAILURE, e.getMessage(), metadata);
+            throw e;
+        }
+    }
+
+    /** Mismo criterio que /login: mensaje identico para email inexistente, password mal o cuenta deshabilitada. */
+    private User authenticateCredentials(Application application, String email, String rawPassword) {
+        User user = userRepository.findByApplicationIdAndEmail(application.getId(), email)
+                .orElseThrow(() -> new InvalidCredentialsException("Email o password invalidos"));
+        if (!user.isEnabled() || !passwordEncoder.matches(rawPassword, user.getPasswordHash())) {
+            throw new InvalidCredentialsException("Email o password invalidos");
+        }
+        return user;
     }
 
     private Application requireApplication(String apiId) {

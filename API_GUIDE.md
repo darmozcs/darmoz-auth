@@ -72,7 +72,8 @@ con el equipo que integra el cliente. No hay forma de auto-registrar una
 aplicación nueva vía API pública — es un paso manual de admin.
 
 **Uso:** todos los endpoints de la sección 6 (`register`, `login`,
-`refresh`, `verify`, `logout`, `disable`) requieren el header:
+`refresh`, `verify`, `logout`, `disable`, `password`, `verify-email/*`)
+requieren el header:
 
 ```
 API_ID: <uuid-de-tu-aplicacion>
@@ -246,9 +247,10 @@ en cada uno.
 
 Crea un usuario nuevo con el rol `USER` **de la aplicación indicada en
 `API_ID`** y devuelve tokens (equivalente a registrarse + loguearse en un
-solo paso). Si el email ya existe en esa aplicación pero está deshabilitado
-(`enabled=false`), en vez de rechazarlo lo **reactiva** (`enabled=true`) sin
-tocar su password ni sus roles.
+solo paso). Si el email ya existe en esa aplicación responde `409`, **también
+si la cuenta está deshabilitada** (`enabled=false`): `/register` nunca
+reactiva cuentas (antes lo hacía; se quitó porque permitía revertir una baja
+hecha por un admin).
 
 **Headers:** `API_ID: <uuid>` (requerido).
 
@@ -283,7 +285,7 @@ entre 8 y 100 caracteres.
 |---|---|---|
 | `400` | falta el header `API_ID`, o email inválido / password fuera de rango / campos vacíos | `{"message": "email: must be a well-formed email address; password: size must be between 8 and 100", ...}` |
 | `404` | `API_ID` no corresponde a ninguna aplicación (o no es un UUID válido) | `{"message": "Aplicacion no encontrada", ...}` |
-| `409` | el email ya está registrado **y habilitado** en esa aplicación | `{"message": "Ya existe una cuenta con ese email", ...}` |
+| `409` | el email ya está registrado en esa aplicación (habilitado o deshabilitado) | `{"message": "Ya existe una cuenta con ese email", ...}` |
 
 ---
 
@@ -295,6 +297,11 @@ entre 8 y 100 caracteres.
 ```json
 { "email": "usuario@ejemplo.com", "password": "unaPasswordSegura123" }
 ```
+
+`email` acepta también **solo la parte anterior al `@`** (ej. `"usuario"`). Esto vale únicamente para `/login`: `register`, los endpoints de verificación de email y los de administración siguen exigiendo el email completo.
+- Se buscan los usuarios de la aplicación cuyo email empieza con `<valor>@`. Los comodines `%` y `_` se toman literalmente.
+- Si varios comparten esa parte (ej. `ana@gmail.com` y `ana@hotmail.com`), entra el primero, en orden de alta, que esté habilitado y cuya password coincida.
+- Si ninguno coincide, se devuelve el mismo `401` que con un email incorrecto.
 
 **200 OK:** mismo shape que `register` (`AuthResponse`, ver arriba).
 
@@ -341,6 +348,7 @@ cambiaron los roles del usuario desde el login original).
 | `401` | `Refresh token invalido` | no existe / no corresponde a ningún hash en la base |
 | `401` | `Refresh token expirado` | pasó el TTL (default 30 días) |
 | `401` | `Refresh token reusado; se revocaron todas las sesiones` | el token ya había sido usado antes → se revocaron **todas** las sesiones activas del usuario, hay que loguear de nuevo |
+| `401` | `Usuario deshabilitado` | el usuario fue deshabilitado (por un admin o por `/disable`); se revocan todas sus sesiones |
 
 ---
 
@@ -426,7 +434,9 @@ Token inválido:
 
 `reason` posibles: `missing_token`, `expired`, `invalid_signature`,
 `malformed`, `revoked`, `application_mismatch` (el token es válido pero es
-de un usuario de otra aplicación, distinta de la indicada en `API_ID`).
+de un usuario de otra aplicación, distinta de la indicada en `API_ID`),
+`disabled` (el token es válido pero el usuario fue deshabilitado o eliminado
+después de emitirlo).
 
 ---
 
@@ -436,8 +446,8 @@ Deshabilita al usuario **autenticado por el propio access token** (no
 recibe un id en el path ni en el body): pone `enabled=false`, revoca todos
 sus refresh tokens activos y bloquea el access token actual. Pensado como
 "cerrar sesión" definitivo/borrado de cuenta desde el propio cliente — no
-hay vuelta atrás salvo volviendo a llamar `/register` con el mismo email
-(ver nota en esa sección: reactiva la cuenta).
+hay vuelta atrás desde la API pública: `/register` con el mismo email responde
+`409`; solo un admin puede volver a habilitar la cuenta.
 
 **Headers:**
 - `API_ID: <uuid>` — requerido.
@@ -482,7 +492,15 @@ en la respuesta).
 | `403` | `El access token no pertenece a la aplicacion indicada` | el token es de un usuario de otra aplicación |
 | `404` | `Usuario no encontrado` | el usuario del token ya no existe |
 | `409` | `El email ya esta verificado` | no hace falta pedir un código nuevo |
+| `429` | `error: "TOO_MANY_REQUESTS"` | ya se envió un código hace menos de 60 s (throttle de reenvío, ver nota abajo) |
 | `502` | — | falló el envío hacia darmoz-mail (red caída o respuesta de error) |
+
+> **Throttle de reenvío** (aplica a todos los endpoints que envían código:
+> `/verify-email/request`, `/verify-email/resend-with-credentials` y
+> `/apps/api/users/{id}/verification-email`): si el último código del
+> usuario se emitió hace menos de `EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS`
+> (default 60), responde `429` con `"error": "TOO_MANY_REQUESTS"`. El cliente
+> debería mostrar un cooldown equivalente en la UI.
 
 ---
 
@@ -507,16 +525,185 @@ contador de logins sin verificar.
 | Status | Body `message`/`error` | Causa |
 |---|---|---|
 | `400` | validación | `code` ausente o no son 6 dígitos |
-| `400` | `Codigo invalido o expirado` | no coincide con el código activo, o ya venció (TTL configurable, default 15 min) |
+| `400` | `Codigo invalido o expirado` | no coincide con el código activo, o ya venció (TTL configurable, default 15 min), o se agotaron los intentos |
+| `400` | `Codigo invalido; se agotaron los intentos, solicita un codigo nuevo` | este fue el 5º intento fallido con el mismo código |
 | `404` | `Aplicacion no encontrada` | `API_ID` inválido/inexistente |
 | `403` | `El access token no pertenece a la aplicacion indicada` | el token es de un usuario de otra aplicación |
 | `409` | `El email ya esta verificado` | ya se había confirmado antes |
+
+> **Límite de intentos** (aplica también a `/verify-email/confirm-with-credentials`):
+> cada código incorrecto suma un intento fallido al código activo del
+> usuario. Al llegar a `EMAIL_VERIFICATION_MAX_FAILED_ATTEMPTS` (default 5)
+> el código se consume: cualquier confirmación posterior (incluso con el
+> código correcto) responde `400` hasta pedir un código nuevo.
+
+---
+
+### `POST /auth/verify-email/confirm-with-credentials`
+
+Variante **sin Bearer** de `/verify-email/confirm`, para usuarios que todavía
+no pueden obtener un token (por ejemplo, un admin creado vía
+`POST /apps/api/users` en una aplicación con `unverified_login_limit=0`:
+su `/login` responde `403 EMAIL_NOT_VERIFIED`). Prueba las credenciales en
+el body, confirma el código, marca `email_verified=true` y **deja al usuario
+logueado**: responde lo mismo que `/login`.
+
+Pedir la password evita que un tercero que solo conoce el email confirme o
+fuerce intentos sobre el código.
+
+**Headers:** `API_ID: <uuid>` (requerido). Sin `Authorization`.
+
+**Body:**
+```json
+{ "email": "admin@tienda.com", "password": "unaPasswordSegura123", "code": "482913" }
+```
+Validación: los tres campos requeridos; `code` de 6 dígitos.
+
+**200 OK:** `AuthResponse` (mismo shape que `/login`), con `emailVerified: true`.
+
+**Errores:**
+| Status | Body `message`/`error` | Causa |
+|---|---|---|
+| `400` | validación | campos vacíos o `code` que no son 6 dígitos |
+| `400` | `Codigo invalido o expirado` / `...se agotaron los intentos...` | código incorrecto, vencido o agotado (ver límite de intentos arriba) |
+| `401` | `Email o password invalidos` | email inexistente en esa aplicación, password incorrecta o cuenta deshabilitada |
+| `404` | `Aplicacion no encontrada` | `API_ID` inválido/inexistente |
+| `409` | `El email ya esta verificado` | ya se había confirmado antes (usar `/login`) |
+
+Se audita como `CONFIRM_EMAIL_VERIFICATION` (y además `LOGIN` si sale bien).
+
+---
+
+### `POST /auth/verify-email/resend-with-credentials`
+
+Variante **sin Bearer** de `/verify-email/request`: prueba las credenciales y
+envía un código nuevo (invalida el anterior).
+
+**Headers:** `API_ID: <uuid>` (requerido). Sin `Authorization`.
+
+**Body:**
+```json
+{ "email": "admin@tienda.com", "password": "unaPasswordSegura123" }
+```
+
+**204 No Content** en éxito.
+
+**Errores:**
+| Status | Body `message`/`error` | Causa |
+|---|---|---|
+| `400` | validación | campos vacíos |
+| `401` | `Email o password invalidos` | credenciales inválidas o cuenta deshabilitada |
+| `404` | `Aplicacion no encontrada` | `API_ID` inválido/inexistente |
+| `409` | `El email ya esta verificado` | no hace falta un código nuevo |
+| `429` | `error: "TOO_MANY_REQUESTS"` | throttle de reenvío (60 s desde el último código) |
+| `502` | — | falló el envío hacia darmoz-mail |
+
+Se audita como `REQUEST_EMAIL_VERIFICATION`.
+
+---
+
+### `POST /auth/password`
+
+Cambia la password del usuario autenticado por el access token. Si sale
+bien: actualiza el hash, **revoca todos sus refresh tokens** (todas las
+sesiones, en todos los dispositivos) y bloquea el access token actual. El
+cliente tiene que volver a loguearse con la password nueva.
+
+**Headers:**
+- `API_ID: <uuid>` — requerido; tiene que coincidir con la aplicación del token.
+- `Authorization: Bearer <accessToken>` — **requerido**.
+
+**Body:**
+```json
+{ "currentPassword": "laPasswordActual", "newPassword": "unaPasswordNueva123" }
+```
+Validación: ambos requeridos; `newPassword` entre 8 y 100 caracteres.
+
+**204 No Content** en éxito.
+
+**Errores:**
+| Status | Body `message`/`error` | Causa |
+|---|---|---|
+| `400` | validación | campos vacíos / `newPassword` fuera de rango, o falta `API_ID` |
+| `400` | `error: "INVALID_CURRENT_PASSWORD"`, `message: "La contrasena actual no es correcta"` | `currentPassword` no coincide |
+| `401` | — | sin token, token inválido/expirado/revocado, o usuario deshabilitado |
+| `403` | `El access token no pertenece a la aplicacion indicada` | `API_ID` distinto de la aplicación del token |
+| `404` | `Aplicacion no encontrada` | `API_ID` inválido/inexistente |
+
+Se audita como `CHANGE_PASSWORD`.
+
+---
+
+### Administración de usuarios de la propia aplicación — `/auth/apps/api/users`
+
+Pensado para que el backend de una aplicación (por ejemplo vivos-be) dé de
+alta y gestione a sus propios usuarios reenviando el Bearer de un admin de
+esa aplicación — sin credenciales globales.
+
+**Requisitos:** `Authorization: Bearer <accessToken>` de un usuario con el
+rol **`APP_ADMIN`** (sin token → `401`; sin el rol → `403`). `API_ID` no es
+necesario: **todas las operaciones quedan limitadas a la aplicación del
+token** (claim `applicationId`). Un usuario de otra aplicación es
+indistinguible de uno inexistente: `404 "Usuario no encontrado"`.
+
+Respuesta de usuario (`AdminUserResponse`, igual que en `/admin/api/users`):
+```json
+{
+  "id": "0f3a2b1c-4d5e-4f6a-8b7c-9d0e1f2a3b4c",
+  "email": "admin@tienda.com",
+  "enabled": true,
+  "emailVerified": false,
+  "unverifiedLoginCount": 0,
+  "applicationId": "22222222-2222-2222-2222-222222222222",
+  "applicationName": "Vivos",
+  "roles": ["ADMIN"],
+  "createdAt": "2026-10-11T13:00:00Z",
+  "updatedAt": "2026-10-11T13:00:00Z"
+}
+```
+
+| Método y ruta | Body | Respuesta | Notas |
+|---|---|---|---|
+| `GET /apps/api/users` | — | `200` `AdminUserResponse[]` | usuarios de la aplicación del token |
+| `GET /apps/api/users/{id}` | — | `200` `AdminUserResponse` | |
+| `POST /apps/api/users` | `{"email", "password" (8-100), "roles": [..] (no vacío)}` | `201` `AdminUserResponse` | ver alta abajo |
+| `PATCH /apps/api/users/{id}` | `{"enabled"?: bool, "password"?: string (8-100)}` | `200` `AdminUserResponse` | update parcial; deshabilitar o cambiar password revoca todos sus refresh tokens |
+| `DELETE /apps/api/users/{id}` | — | `204` | revoca sus refresh tokens y borra el usuario |
+| `POST /apps/api/users/{id}/verification-email` | — | `204` | reenvía el código de verificación (throttle 60 s) |
+
+**Alta (`POST`):** los roles se resuelven **dentro de la aplicación del
+token**. El usuario se crea con `emailVerified=false` y, en la misma
+transacción, se le envía el código de verificación por darmoz-mail. Si el
+envío falla (`502`) se hace rollback: el usuario **no** queda creado. El
+usuario confirma con `/verify-email/confirm-with-credentials`.
+
+**Reglas y errores:**
+| Status | Causa |
+|---|---|
+| `400` | validación del body |
+| `404` | `Usuario no encontrado` (inexistente o de otra aplicación) / `Rol no encontrado: X` (el rol no existe en la aplicación del token) |
+| `409` | `Ya existe una cuenta con ese email` |
+| `409` | `No se puede asignar el rol APP_ADMIN` / `SUPER` (evita escalada de privilegios) |
+| `409` | `No podes modificar ni eliminar tu propio usuario` (`PATCH`/`DELETE` sobre el id del token) |
+| `409` | `No se puede modificar ni eliminar a otro administrador de la aplicacion` (`PATCH`/`DELETE` sobre un usuario con `APP_ADMIN`) |
+| `409` | `El email ya esta verificado` (`verification-email` sobre un usuario ya verificado) |
+| `429` | `TOO_MANY_REQUESTS` (`verification-email` antes de 60 s del último código) |
+| `502` | falló el envío del código a darmoz-mail (alta o reenvío) |
+
+**Aplicación Vivos** (sembrada por `V8__add_vivos_application.sql`): id fijo
+`22222222-2222-2222-2222-222222222222`, `unverified_login_limit=0`, roles
+`SUPER_ADMIN`, `APP_ADMIN` y `ADMIN`. El primer Super Admin de Vivos lo crea
+un `SUPER` global con `POST /auth/admin/api/users`
+(`{"email", "password", "applicationId": "22222222-...", "roles": ["SUPER_ADMIN", "APP_ADMIN"]}`).
+
+> `/admin/api/**` (panel global) exige rol `SUPER` **y** que el token sea de
+> la aplicación de sistema (`11111111-1111-1111-1111-111111111111`).
 
 ---
 
 ## 7. Formato de error genérico
 
-Todos los errores (`400`, `403`, `404`, `409`, etc.) que no sean de
+Todos los errores (`400`, `403`, `404`, `409`, `429`, etc.) que no sean de
 `/verify` (que siempre devuelve `200`) usan este shape:
 
 ```json
@@ -528,19 +715,29 @@ Todos los errores (`400`, `403`, `404`, `409`, etc.) que no sean de
 }
 ```
 
+En general `error` es el reason phrase HTTP. Excepciones con un código
+estable pensado para que el cliente branchee:
+
+| `error` | Status | Dónde |
+|---|---|---|
+| `EMAIL_NOT_VERIFIED` | `403` | `/login` |
+| `INVALID_CURRENT_PASSWORD` | `400` | `/password` |
+| `TOO_MANY_REQUESTS` | `429` | endpoints que envían código de verificación |
+
 ---
 
 ## 8. CORS
 
 Configurado en `SecurityConfig`:
-- **Origins permitidos:** `https://darmozsc.duckdns.org` únicamente (hardcodeado, no hay wildcard).
-- **Métodos:** `GET`, `POST`, `OPTIONS`.
+- **Origins permitidos:** variable de entorno `CORS_ALLOWED_ORIGINS` (propiedad
+  `cors.allowed-origins`), lista separada por comas. Default:
+  `https://darmozsc.duckdns.org`. No hay wildcard. En dev, por ejemplo:
+  `CORS_ALLOWED_ORIGINS=https://darmozsc.duckdns.org,http://localhost:5173`.
+- **Métodos:** `GET`, `POST`, `OPTIONS` en la API pública (incluye `/password`
+  y `/verify-email/*`, todos `POST`); además `PATCH` y `DELETE` en
+  `/apps/api/**`; y `PUT`/`PATCH`/`DELETE` en `/admin/api/**`.
 - **Headers permitidos:** `Authorization`, `Content-Type`, `API_ID`.
 - **Credentials:** `false` (no cookies — auth es puramente por Bearer token en el header, no hay sesión/cookie).
-
-Un cliente que corra en otro origin (ej. `http://localhost:5173` en dev)
-va a ser bloqueado por CORS salvo que se agregue explícitamente a
-`corsConfigurationSource()` en `SecurityConfig.java`.
 
 ---
 
@@ -577,8 +774,8 @@ curl -s -X POST $BASE/logout \
   -d "{\"refreshToken\":\"$REFRESH_TOKEN\"}"
 # -> 204
 
-# 6. Deshabilitar la cuenta (borrado logico, no hay vuelta atras salvo
-#    volviendo a registrarse con el mismo email)
+# 6. Deshabilitar la cuenta (borrado logico; solo un admin puede volver a
+#    habilitarla)
 curl -s -X POST $BASE/disable \
   -H "Authorization: Bearer $ACCESS_TOKEN" -H "API_ID: $API_ID"
 # -> 204
@@ -626,6 +823,9 @@ comportamiento observado en cada entorno:
 | `JWT_REFRESH_TOKEN_TTL_DAYS` | `30` | Vida del refresh token. |
 | `JWT_ISSUER` | `darmoz-auth` | Claim `iss` del JWT. |
 | `EMAIL_VERIFICATION_CODE_TTL_MINUTES` | `15` | Vigencia del código de `/verify-email/request`. |
+| `EMAIL_VERIFICATION_MAX_FAILED_ATTEMPTS` | `5` | Intentos fallidos por código antes de consumirlo. |
+| `EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS` | `60` | Tiempo mínimo entre dos envíos de código al mismo usuario (si no, `429`). |
+| `CORS_ALLOWED_ORIGINS` | `https://darmozsc.duckdns.org` | Origins permitidos por CORS, separados por coma. |
 | `DARMOZ_MAIL_BASE_URL` | `http://localhost:8081/darmoz-mail` | Base URL de darmoz-mail (incluye context-path). |
 | `DARMOZ_MAIL_CLIENT_ID` | (uuid fijo del client application de darmoz-auth en darmoz-mail) | Header `X-Client-Id` al llamar `POST /emails`. |
 

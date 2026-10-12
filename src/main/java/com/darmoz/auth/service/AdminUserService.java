@@ -5,36 +5,28 @@ import com.darmoz.auth.dto.request.AdminCreateUserRequest;
 import com.darmoz.auth.dto.request.AdminUpdateUserRequest;
 import com.darmoz.auth.dto.response.AdminUserResponse;
 import com.darmoz.auth.entity.Application;
-import com.darmoz.auth.entity.Role;
 import com.darmoz.auth.entity.User;
 import com.darmoz.auth.exception.NotFoundException;
-import com.darmoz.auth.exception.UserAlreadyExistsException;
 import com.darmoz.auth.repository.ApplicationRepository;
-import com.darmoz.auth.repository.RoleRepository;
 import com.darmoz.auth.repository.UserRepository;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Service
 public class AdminUserService {
 
     private final UserRepository userRepository;
-    private final RoleRepository roleRepository;
     private final ApplicationRepository applicationRepository;
-    private final PasswordEncoder passwordEncoder;
+    private final UserAccountService userAccountService;
 
-    public AdminUserService(UserRepository userRepository, RoleRepository roleRepository,
-                             ApplicationRepository applicationRepository, PasswordEncoder passwordEncoder) {
+    public AdminUserService(UserRepository userRepository, ApplicationRepository applicationRepository,
+                             UserAccountService userAccountService) {
         this.userRepository = userRepository;
-        this.roleRepository = roleRepository;
         this.applicationRepository = applicationRepository;
-        this.passwordEncoder = passwordEncoder;
+        this.userAccountService = userAccountService;
     }
 
     @Transactional(readOnly = true)
@@ -51,28 +43,19 @@ public class AdminUserService {
     public AdminUserResponse create(AdminCreateUserRequest request) {
         Application application = applicationRepository.findById(request.applicationId())
                 .orElseThrow(() -> new NotFoundException("Aplicacion no encontrada: " + request.applicationId()));
-        if (userRepository.existsByApplicationIdAndEmail(application.getId(), request.email())) {
-            throw new UserAlreadyExistsException("Ya existe una cuenta con ese email");
-        }
-        Set<Role> roles = resolveRoles(application.getId(), request.roles());
-        User user = new User(request.email(), passwordEncoder.encode(request.password()), roles, application);
         // Creado por un admin (no self-registro publico via /register): se considera ya
         // verificado, si no quedaria potencialmente bloqueado por EMAIL_NOT_VERIFIED en su
         // primer /login.
-        user.setEmailVerified(true);
-        return AdminUserResponse.of(userRepository.save(user));
+        User user = userAccountService.createUser(application, request.email(), request.password(),
+                userAccountService.resolveRoles(application.getId(), request.roles()), true);
+        return AdminUserResponse.of(user);
     }
 
+    /** Deshabilitar o cambiar la password revoca todos los refresh tokens del usuario. */
     @Transactional
     public AdminUserResponse update(UUID id, AdminUpdateUserRequest request) {
         User user = findUserOrThrow(id);
-        if (request.enabled() != null) {
-            user.setEnabled(request.enabled());
-        }
-        if (request.password() != null && !request.password().isBlank()) {
-            user.setPasswordHash(passwordEncoder.encode(request.password()));
-        }
-        return AdminUserResponse.of(userRepository.save(user));
+        return AdminUserResponse.of(userAccountService.update(user, request.enabled(), request.password()));
     }
 
     @Transactional
@@ -80,27 +63,17 @@ public class AdminUserService {
         User user = findUserOrThrow(id);
         // Roles se resuelven scoped a la aplicacion DEL USUARIO, no elegible por el caller —
         // consistente con no permitir reasignar la aplicacion de un usuario existente.
-        user.setRoles(resolveRoles(user.getApplication().getId(), request.roles()));
+        user.setRoles(userAccountService.resolveRoles(user.getApplication().getId(), request.roles()));
         return AdminUserResponse.of(userRepository.save(user));
     }
 
     @Transactional
     public void delete(UUID id) {
-        if (!userRepository.existsById(id)) {
-            throw new NotFoundException("Usuario no encontrado: " + id);
-        }
-        userRepository.deleteById(id);
+        userAccountService.delete(findUserOrThrow(id));
     }
 
     private User findUserOrThrow(UUID id) {
         return userRepository.findById(id)
                 .orElseThrow(() -> new NotFoundException("Usuario no encontrado: " + id));
-    }
-
-    private Set<Role> resolveRoles(UUID applicationId, Set<String> names) {
-        return names.stream()
-                .map(name -> roleRepository.findByApplicationIdAndName(applicationId, name)
-                        .orElseThrow(() -> new NotFoundException("Rol no encontrado: " + name)))
-                .collect(Collectors.toSet());
     }
 }

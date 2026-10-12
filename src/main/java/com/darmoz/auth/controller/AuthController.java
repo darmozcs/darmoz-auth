@@ -1,7 +1,10 @@
 package com.darmoz.auth.controller;
 
 import com.darmoz.auth.dto.RequestMetadata;
+import com.darmoz.auth.dto.request.ChangePasswordRequest;
 import com.darmoz.auth.dto.request.ConfirmEmailVerificationRequest;
+import com.darmoz.auth.dto.request.ConfirmEmailWithCredentialsRequest;
+import com.darmoz.auth.dto.request.CredentialsRequest;
 import com.darmoz.auth.dto.request.LoginRequest;
 import com.darmoz.auth.dto.request.LogoutRequest;
 import com.darmoz.auth.dto.request.RefreshRequest;
@@ -101,6 +104,34 @@ public class AuthController {
             @Valid @RequestBody ConfirmEmailVerificationRequest request,
             HttpServletRequest httpRequest) {
         authService.confirmEmailVerification(apiId, extractBearerToken(authorizationHeader), request.code(),
+                RequestMetadata.from(httpRequest));
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/verify-email/confirm-with-credentials")
+    public ResponseEntity<AuthResponse> confirmEmailWithCredentials(
+            @RequestHeader(API_ID_HEADER) String apiId,
+            @Valid @RequestBody ConfirmEmailWithCredentialsRequest request,
+            HttpServletRequest httpRequest) {
+        return ResponseEntity.ok(authService.confirmEmailWithCredentials(apiId, request,
+                RequestMetadata.from(httpRequest)));
+    }
+
+    @PostMapping("/verify-email/resend-with-credentials")
+    public ResponseEntity<Void> resendEmailVerificationWithCredentials(
+            @RequestHeader(API_ID_HEADER) String apiId,
+            @Valid @RequestBody CredentialsRequest request,
+            HttpServletRequest httpRequest) {
+        authService.resendEmailVerificationWithCredentials(apiId, request, RequestMetadata.from(httpRequest));
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/password")
+    public ResponseEntity<Void> changePassword(@RequestHeader(API_ID_HEADER) String apiId,
+                                                @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
+                                                @Valid @RequestBody ChangePasswordRequest request,
+                                                HttpServletRequest httpRequest) {
+        authService.changePassword(apiId, extractBearerToken(authorizationHeader), request,
                 RequestMetadata.from(httpRequest));
         return ResponseEntity.noContent().build();
     }

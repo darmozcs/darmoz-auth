@@ -4,8 +4,6 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -15,17 +13,22 @@ import java.security.KeyPairGenerator;
 import java.security.NoSuchAlgorithmException;
 import java.util.Base64;
 
-@Testcontainers
+/**
+ * Contenedor Postgres "singleton": se arranca una sola vez por JVM y se comparte entre todas las
+ * clases IT. Con @Testcontainers/@Container el contenedor se reiniciaba (puerto nuevo) en cada
+ * clase mientras Spring reusaba el contexto cacheado apuntando al puerto viejo. Ryuk lo limpia
+ * al terminar la JVM.
+ */
 @ActiveProfiles("test")
 public abstract class AbstractIntegrationTest {
 
-    @Container
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine");
 
     static final Path PRIVATE_KEY_PATH;
     static final Path PUBLIC_KEY_PATH;
 
     static {
+        POSTGRES.start();
         try {
             KeyPair keyPair = KeyPairGenerator.getInstance("RSA").generateKeyPair();
             Path tempDir = Files.createTempDirectory("darmoz-auth-test-keys");

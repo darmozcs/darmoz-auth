@@ -29,6 +29,9 @@ public class EmailVerificationToken {
     @Column(name = "consumed_at")
     private OffsetDateTime consumedAt;
 
+    @Column(name = "failed_attempts", nullable = false)
+    private int failedAttempts = 0;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
 
@@ -52,6 +55,25 @@ public class EmailVerificationToken {
      */
     public void consume() {
         this.consumedAt = OffsetDateTime.now();
+    }
+
+    /**
+     * Registra un intento fallido de confirmacion. Al llegar a maxFailedAttempts el codigo se
+     * consume: deja de ser valido aunque despues se ingrese el correcto, y hay que pedir uno nuevo.
+     *
+     * @return true si con este intento el codigo quedo agotado (consumido).
+     */
+    public boolean registerFailedAttempt(int maxFailedAttempts) {
+        this.failedAttempts++;
+        if (this.failedAttempts >= maxFailedAttempts) {
+            consume();
+            return true;
+        }
+        return false;
+    }
+
+    public int getFailedAttempts() {
+        return failedAttempts;
     }
 
     public boolean isConsumed() {

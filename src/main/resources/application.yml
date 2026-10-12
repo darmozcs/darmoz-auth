@@ -41,6 +41,13 @@ darmoz:
 
 email-verification:
   code-ttl-minutes: ${EMAIL_VERIFICATION_CODE_TTL_MINUTES:15}
+  max-failed-attempts: ${EMAIL_VERIFICATION_MAX_FAILED_ATTEMPTS:5}
+  resend-cooldown-seconds: ${EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS:60}
+
+# Origins permitidos por CORS, separados por coma (ej. en dev:
+# CORS_ALLOWED_ORIGINS=https://darmozsc.duckdns.org,http://localhost:5173).
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:https://darmozsc.duckdns.org}
 
 management:
   endpoints:

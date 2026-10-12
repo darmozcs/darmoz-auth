@@ -76,7 +76,7 @@ class AdminControllerIT extends AbstractIntegrationTest {
         userRepository.save(superUser);
 
         ResponseEntity<AuthResponse> login = restTemplate.exchange(
-                "/auth/login", HttpMethod.POST,
+                "/login", HttpMethod.POST,
                 new HttpEntity<>(new LoginRequest(email, password), apiIdHeaders(systemApplication.getId())),
                 AuthResponse.class);
         assertThat(login.getStatusCode()).isEqualTo(HttpStatus.OK);
@@ -86,29 +86,52 @@ class AdminControllerIT extends AbstractIntegrationTest {
     @Test
     void nonSuperUserGetsForbidden() {
         String email = "plain-" + UUID.randomUUID() + "@darmoz.com";
-        restTemplate.exchange("/auth/register", HttpMethod.POST,
+        restTemplate.exchange("/register", HttpMethod.POST,
                 new HttpEntity<>(new RegisterRequest(email, "Plain1234!"), apiIdHeaders(laryonApplication.getId())),
                 AuthResponse.class);
         ResponseEntity<AuthResponse> login = restTemplate.exchange(
-                "/auth/login", HttpMethod.POST,
+                "/login", HttpMethod.POST,
                 new HttpEntity<>(new LoginRequest(email, "Plain1234!"), apiIdHeaders(laryonApplication.getId())),
                 AuthResponse.class);
         String plainToken = login.getBody().accessToken();
 
         ResponseEntity<String> response = restTemplate.exchange(
-                "/auth/admin/api/users", HttpMethod.GET, bearerEntity(plainToken), String.class);
+                "/admin/api/users", HttpMethod.GET, bearerEntity(plainToken), String.class);
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
+    }
+
+    @Test
+    void superRoleOutsideSystemApplicationGetsForbidden() {
+        // No se puede crear via API (AdminRoleService lo rechaza), pero si existiera un rol SUPER
+        // en otra aplicacion, /admin/api/** igual tiene que exigir la aplicacion de sistema.
+        Role foreignSuper = roleRepository.findByApplicationIdAndName(laryonApplication.getId(), "SUPER")
+                .orElseGet(() -> roleRepository.save(new Role("SUPER", "rol SUPER fuera de sistema", laryonApplication)));
+        String email = "fake-super-" + UUID.randomUUID() + "@darmoz.com";
+        String password = "Fake1234!";
+        User user = new User(email, passwordEncoder.encode(password), Set.of(foreignSuper), laryonApplication);
+        user.setEmailVerified(true);
+        userRepository.save(user);
+
+        ResponseEntity<AuthResponse> login = restTemplate.exchange(
+                "/login", HttpMethod.POST,
+                new HttpEntity<>(new LoginRequest(email, password), apiIdHeaders(laryonApplication.getId())),
+                AuthResponse.class);
+        assertThat(login.getBody().roles()).containsExactly("SUPER");
+
+        ResponseEntity<String> response = restTemplate.exchange(
+                "/admin/api/users", HttpMethod.GET, bearerEntity(login.getBody().accessToken()), String.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     }
 
     @Test
     void requestWithoutTokenGetsUnauthorized() {
-        ResponseEntity<String> response = restTemplate.getForEntity("/auth/admin/api/users", String.class);
+        ResponseEntity<String> response = restTemplate.getForEntity("/admin/api/users", String.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 
     @Test
     void dashboardStaticAssetsAreServedWithoutAuth() {
-        ResponseEntity<String> response = restTemplate.getForEntity("/auth/admin/index.html", String.class);
+        ResponseEntity<String> response = restTemplate.getForEntity("/admin/index.html", String.class);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).contains("Panel de administraci");
     }
@@ -117,33 +140,33 @@ class AdminControllerIT extends AbstractIntegrationTest {
     void fullAdminCrudLifecycle() {
         // Roles: crear, listar
         ResponseEntity<RoleResponse> createRole = restTemplate.exchange(
-                "/auth/admin/api/roles", HttpMethod.POST,
+                "/admin/api/roles", HttpMethod.POST,
                 new HttpEntity<>(new AdminCreateRoleRequest("BILLING", "Acceso a facturacion", laryonApplication.getId()), authHeaders()),
                 RoleResponse.class);
         assertThat(createRole.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         assertThat(createRole.getBody().name()).isEqualTo("BILLING");
 
         ResponseEntity<RoleResponse[]> listRoles = restTemplate.exchange(
-                "/auth/admin/api/roles", HttpMethod.GET, bearerEntity(superToken), RoleResponse[].class);
+                "/admin/api/roles", HttpMethod.GET, bearerEntity(superToken), RoleResponse[].class);
         assertThat(listRoles.getBody()).extracting(RoleResponse::name).contains("USER", "ADMIN", "SUPER", "BILLING");
 
         // Role-permissions: crear para el rol nuevo
         ResponseEntity<RolePermissionResponse> createPermission = restTemplate.exchange(
-                "/auth/admin/api/role-permissions", HttpMethod.POST,
+                "/admin/api/role-permissions", HttpMethod.POST,
                 new HttpEntity<>(new AdminCreateRolePermissionRequest(createRole.getBody().id(), "nexora-api", "GET", "/api/invoices/**"), authHeaders()),
                 RolePermissionResponse.class);
         assertThat(createPermission.getStatusCode()).isEqualTo(HttpStatus.CREATED);
 
         // Duplicado -> 409
         ResponseEntity<String> duplicatePermission = restTemplate.exchange(
-                "/auth/admin/api/role-permissions", HttpMethod.POST,
+                "/admin/api/role-permissions", HttpMethod.POST,
                 new HttpEntity<>(new AdminCreateRolePermissionRequest(createRole.getBody().id(), "nexora-api", "GET", "/api/invoices/**"), authHeaders()),
                 String.class);
         assertThat(duplicatePermission.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
 
         // Usuarios: crear con el rol nuevo
         ResponseEntity<AdminUserResponse> createUser = restTemplate.exchange(
-                "/auth/admin/api/users", HttpMethod.POST,
+                "/admin/api/users", HttpMethod.POST,
                 new HttpEntity<>(new AdminCreateUserRequest("billing-" + UUID.randomUUID() + "@darmoz.com", "Billing1234!",
                         laryonApplication.getId(), Set.of("BILLING")), authHeaders()),
                 AdminUserResponse.class);
@@ -153,39 +176,47 @@ class AdminControllerIT extends AbstractIntegrationTest {
 
         // Deshabilitar
         ResponseEntity<AdminUserResponse> disableUser = restTemplate.exchange(
-                "/auth/admin/api/users/" + userId, HttpMethod.PATCH,
+                "/admin/api/users/" + userId, HttpMethod.PATCH,
                 new HttpEntity<>(new AdminUpdateUserRequest(false, null), authHeaders()),
                 AdminUserResponse.class);
         assertThat(disableUser.getBody().enabled()).isFalse();
 
+        // Desactivado: ya no puede refrescar ni loguearse.
+        ResponseEntity<String> disabledLogin = restTemplate.exchange(
+                "/login", HttpMethod.POST,
+                new HttpEntity<>(new LoginRequest(createUser.getBody().email(), "Billing1234!"),
+                        apiIdHeaders(laryonApplication.getId())),
+                String.class);
+        assertThat(disabledLogin.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+
         // Reasignar roles a USER
         ResponseEntity<AdminUserResponse> reassign = restTemplate.exchange(
-                "/auth/admin/api/users/" + userId + "/roles", HttpMethod.PUT,
+                "/admin/api/users/" + userId + "/roles", HttpMethod.PUT,
                 new HttpEntity<>(new AdminAssignRolesRequest(Set.of("USER")), authHeaders()),
                 AdminUserResponse.class);
         assertThat(reassign.getBody().roles()).containsExactly("USER");
 
         // Borrar el rol BILLING falla porque el permission todavia existe
         ResponseEntity<String> deleteRoleInUse = restTemplate.exchange(
-                "/auth/admin/api/roles/" + createRole.getBody().id(), HttpMethod.DELETE,
+                "/admin/api/roles/" + createRole.getBody().id(), HttpMethod.DELETE,
                 bearerEntity(superToken), String.class);
         assertThat(deleteRoleInUse.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
 
         // Borrar el permiso, despues si se puede borrar el rol
-        restTemplate.exchange("/auth/admin/api/role-permissions/" + createPermission.getBody().id(),
+        restTemplate.exchange("/admin/api/role-permissions/" + createPermission.getBody().id(),
                 HttpMethod.DELETE, bearerEntity(superToken), Void.class);
         ResponseEntity<Void> deleteRole = restTemplate.exchange(
-                "/auth/admin/api/roles/" + createRole.getBody().id(), HttpMethod.DELETE,
+                "/admin/api/roles/" + createRole.getBody().id(), HttpMethod.DELETE,
                 bearerEntity(superToken), Void.class);
         assertThat(deleteRole.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 
         // Borrar el usuario
         ResponseEntity<Void> deleteUser = restTemplate.exchange(
-                "/auth/admin/api/users/" + userId, HttpMethod.DELETE, bearerEntity(superToken), Void.class);
+                "/admin/api/users/" + userId, HttpMethod.DELETE, bearerEntity(superToken), Void.class);
         assertThat(deleteUser.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
 
         ResponseEntity<String> getDeletedUser = restTemplate.exchange(
-                "/auth/admin/api/users/" + userId, HttpMethod.GET, bearerEntity(superToken), String.class);
+                "/admin/api/users/" + userId, HttpMethod.GET, bearerEntity(superToken), String.class);
         assertThat(getDeletedUser.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
     }
 
