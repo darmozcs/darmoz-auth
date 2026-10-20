@@ -33,7 +33,7 @@ Traefik  (único punto de entrada, TLS con Let's Encrypt)
   - `data` → para servicios internos (bases de datos, colas) que **nunca**
     deben tener labels de Traefik ni quedar expuestos.
 - **CI/CD**: cada repo de GitHub tiene su propio runner self-hosted corriendo
-  como servicio systemd en este mismo servidor. `git push` a `main` → build +
+  como servicio systemd en este mismo servidor. `git push` a `desa` → build +
   push a GHCR (en la nube de GitHub) → el runner local hace
   `docker compose pull && up -d` **solo** de ese servicio.
 
@@ -241,7 +241,7 @@ Cada repo necesita:
 name: Deploy <app>
 
 on:
-  push: { branches: [main] }
+  push: { branches: [desa] }
   workflow_dispatch: {}
 
 env:

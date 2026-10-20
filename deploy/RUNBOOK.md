@@ -39,7 +39,7 @@ servidor antes de escribir esto:
    El `<TOKEN>` sale de GitHub → repo `darmozcs/darmoz-auth` → Settings →
    Actions → Runners → New self-hosted runner (dura ~1h, solo lo puede
    generar quien tiene acceso admin al repo).
-7. `git push` a `main` → dispara CI: test → build & push a GHCR → deploy
+7. `git push` a `desa` → dispara CI: test → build & push a GHCR → deploy
    (`docker compose pull && up -d` en el server vía el runner).
 8. Si `docker compose pull` da `denied`: hacer público el paquete en
    `github.com/darmozcs?tab=packages` → `darmoz-auth` → Package settings →
