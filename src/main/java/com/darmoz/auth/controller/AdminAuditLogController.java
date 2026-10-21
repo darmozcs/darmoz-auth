@@ -1,5 +1,7 @@
 package com.darmoz.auth.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import com.darmoz.auth.dto.response.AuditLogResponse;
 import com.darmoz.auth.dto.response.PageResponse;
 import com.darmoz.auth.entity.AuditAction;
@@ -13,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.time.LocalDate;
 import java.util.UUID;
 
+@Tag(name = "Admin · Auditoría", description = "Requiere Bearer de un usuario SUPER de la aplicación de sistema (11111111-1111-1111-1111-111111111111).")
 @RestController
 @RequestMapping("/admin/api/audit-log")
 public class AdminAuditLogController {
@@ -24,6 +27,7 @@ public class AdminAuditLogController {
     }
 
     @GetMapping
+    @Operation(summary = "Consultar auditoría", description = "Paginada y con filtros.")
     public PageResponse<AuditLogResponse> list(
             @RequestParam(required = false) AuditAction action,
             @RequestParam(required = false) UUID applicationId,

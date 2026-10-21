@@ -1,5 +1,7 @@
 package com.darmoz.auth.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import com.darmoz.auth.dto.request.AdminCreateRoleRequest;
 import com.darmoz.auth.dto.response.RoleResponse;
 import com.darmoz.auth.service.AdminRoleService;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.UUID;
 
+@Tag(name = "Admin · Roles", description = "Requiere Bearer de un usuario SUPER de la aplicación de sistema (11111111-1111-1111-1111-111111111111).")
 @RestController
 @RequestMapping("/admin/api/roles")
 public class AdminRoleController {
@@ -28,16 +31,19 @@ public class AdminRoleController {
     }
 
     @GetMapping
+    @Operation(summary = "Listar roles")
     public List<RoleResponse> list() {
         return adminRoleService.list();
     }
 
     @PostMapping
+    @Operation(summary = "Crear rol")
     public ResponseEntity<RoleResponse> create(@Valid @RequestBody AdminCreateRoleRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(adminRoleService.create(request));
     }
 
     @DeleteMapping("/{id}")
+    @Operation(summary = "Borrar rol")
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
         adminRoleService.delete(id);
         return ResponseEntity.noContent().build();

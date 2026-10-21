@@ -1,5 +1,7 @@
 package com.darmoz.auth.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import com.darmoz.auth.dto.request.AdminAssignRolesRequest;
 import com.darmoz.auth.dto.request.AdminCreateUserRequest;
 import com.darmoz.auth.dto.request.AdminUpdateUserRequest;
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 import java.util.UUID;
 
+@Tag(name = "Admin · Usuarios", description = "Requiere Bearer de un usuario SUPER de la aplicación de sistema (11111111-1111-1111-1111-111111111111).")
 @RestController
 @RequestMapping("/admin/api/users")
 public class AdminUserController {
@@ -32,31 +35,37 @@ public class AdminUserController {
     }
 
     @GetMapping
+    @Operation(summary = "Listar usuarios", description = "De todas las aplicaciones.")
     public List<AdminUserResponse> list() {
         return adminUserService.list();
     }
 
     @GetMapping("/{id}")
+    @Operation(summary = "Ver usuario")
     public AdminUserResponse get(@PathVariable UUID id) {
         return adminUserService.get(id);
     }
 
     @PostMapping
+    @Operation(summary = "Crear usuario")
     public ResponseEntity<AdminUserResponse> create(@Valid @RequestBody AdminCreateUserRequest request) {
         return ResponseEntity.status(HttpStatus.CREATED).body(adminUserService.create(request));
     }
 
     @PatchMapping("/{id}")
+    @Operation(summary = "Editar usuario")
     public AdminUserResponse update(@PathVariable UUID id, @Valid @RequestBody AdminUpdateUserRequest request) {
         return adminUserService.update(id, request);
     }
 
     @PutMapping("/{id}/roles")
+    @Operation(summary = "Reemplazar roles")
     public AdminUserResponse replaceRoles(@PathVariable UUID id, @Valid @RequestBody AdminAssignRolesRequest request) {
         return adminUserService.replaceRoles(id, request);
     }
 
     @DeleteMapping("/{id}")
+    @Operation(summary = "Borrar usuario")
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
         adminUserService.delete(id);
         return ResponseEntity.noContent().build();

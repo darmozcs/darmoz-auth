@@ -55,6 +55,7 @@ public class SecurityConfig {
                         .requestMatchers("/verify-email/confirm-with-credentials",
                                 "/verify-email/resend-with-credentials").permitAll()
                         .requestMatchers("/actuator/health", "/actuator/info", "/error").permitAll()
+                        .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers("/admin/api/**").access(systemSuperAdmin())
                         .requestMatchers("/admin/**").permitAll()
                         .requestMatchers("/apps/api/**").hasRole("APP_ADMIN")

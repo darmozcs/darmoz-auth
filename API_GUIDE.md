@@ -19,6 +19,8 @@ relativos a esa base — ej. `POST /auth/login`.
 
 Content-Type de request y response: `application/json` en todos los casos.
 
+**Swagger:** `https://darmozsc.duckdns.org/auth/swagger-ui.html` (UI para probar) y `/auth/v3/api-docs` (OpenAPI JSON para Postman o generar clientes). Se genera desde el código; en **Authorize** se cargan el `API_ID` y el Bearer. Se apaga con `API_DOCS_ENABLED=false`.
+
 **Multi-tenant desde esta versión:** todo consumidor (frontend, app móvil,
 otro backend) representa una **Aplicación** dentro de darmoz-auth, y tiene
 que mandar un header `API_ID` con el UUID de esa aplicación en **todos** los

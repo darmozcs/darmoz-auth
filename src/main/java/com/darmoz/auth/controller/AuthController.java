@@ -1,5 +1,7 @@
 package com.darmoz.auth.controller;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import com.darmoz.auth.dto.RequestMetadata;
 import com.darmoz.auth.dto.request.ChangePasswordRequest;
 import com.darmoz.auth.dto.request.ConfirmEmailVerificationRequest;
@@ -23,6 +25,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+@Tag(name = "Auth", description = "API pública para las aplicaciones. Todos piden el header API_ID.")
 @RestController
 @RequestMapping
 public class AuthController {
@@ -37,6 +40,7 @@ public class AuthController {
     }
 
     @PostMapping("/register")
+    @Operation(summary = "Registrar usuario", description = "Crea el usuario con rol USER en la aplicación del API_ID y devuelve tokens. Password de 8 a 100 caracteres. 409 si el email ya existe en esa aplicación, también si la cuenta está deshabilitada.")
     public ResponseEntity<AuthResponse> register(@RequestHeader(API_ID_HEADER) String apiId,
                                                   @Valid @RequestBody RegisterRequest request,
                                                   HttpServletRequest httpRequest) {
@@ -45,6 +49,7 @@ public class AuthController {
     }
 
     @PostMapping("/login")
+    @Operation(summary = "Iniciar sesión", description = "`email` acepta también solo la parte antes del `@`. 401 con el mismo mensaje para email inexistente, password incorrecta o cuenta deshabilitada. 403 `EMAIL_NOT_VERIFIED` si el email no está verificado y se agotaron los logins de gracia de la aplicación.")
     public ResponseEntity<AuthResponse> login(@RequestHeader(API_ID_HEADER) String apiId,
                                                @Valid @RequestBody LoginRequest request,
                                                HttpServletRequest httpRequest) {
@@ -52,6 +57,7 @@ public class AuthController {
     }
 
     @PostMapping("/refresh")
+    @Operation(summary = "Renovar tokens", description = "Rota el refresh token: el recibido queda inválido. Reusar uno ya usado revoca todas las sesiones del usuario (401). Los roles y permisos se recalculan.")
     public ResponseEntity<AuthResponse> refresh(@RequestHeader(API_ID_HEADER) String apiId,
                                                  @Valid @RequestBody RefreshRequest request,
                                                  HttpServletRequest httpRequest) {
@@ -59,6 +65,7 @@ public class AuthController {
     }
 
     @PostMapping("/logout")
+    @Operation(summary = "Cerrar sesión", description = "Revoca el refresh token del body. Si además se manda el Bearer, bloquea el access token. Siempre 204.")
     public ResponseEntity<Void> logout(
             @RequestHeader(API_ID_HEADER) String apiId,
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader,
@@ -70,6 +77,7 @@ public class AuthController {
     }
 
     @PostMapping("/verify")
+    @Operation(summary = "Validar un access token", description = "Validación remota: firma, expiración, revocación y aplicación. Siempre 200; el resultado va en `valid` y `reason` (`missing_token`, `expired`, `invalid_signature`, `malformed`, `revoked`, `application_mismatch`, `disabled`).")
     public ResponseEntity<VerifyResponse> verify(
             @RequestHeader(API_ID_HEADER) String apiId,
             @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader,
@@ -79,6 +87,7 @@ public class AuthController {
     }
 
     @PostMapping("/disable")
+    @Operation(summary = "Deshabilitar mi cuenta", description = "Pone `enabled=false`, revoca todas las sesiones y bloquea el token actual. Solo un admin puede volver a habilitarla.")
     public ResponseEntity<Void> disable(@RequestHeader(API_ID_HEADER) String apiId,
                                          @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
                                          HttpServletRequest httpRequest) {
@@ -88,6 +97,7 @@ public class AuthController {
     }
 
     @PostMapping("/verify-email/request")
+    @Operation(summary = "Pedir código de verificación", description = "Envía por email un código de 6 dígitos e invalida el anterior. 409 si ya está verificado; 429 `TOO_MANY_REQUESTS` si el último se envió hace menos de 60 s; 502 si falló darmoz-mail.")
     public ResponseEntity<Void> requestEmailVerification(
             @RequestHeader(API_ID_HEADER) String apiId,
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
@@ -98,6 +108,7 @@ public class AuthController {
     }
 
     @PostMapping("/verify-email/confirm")
+    @Operation(summary = "Confirmar email", description = "Código de 6 dígitos. Vence a los 15 minutos y se agota a los 5 intentos fallidos.")
     public ResponseEntity<Void> confirmEmailVerification(
             @RequestHeader(API_ID_HEADER) String apiId,
             @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
@@ -109,6 +120,7 @@ public class AuthController {
     }
 
     @PostMapping("/verify-email/confirm-with-credentials")
+    @Operation(summary = "Confirmar email con credenciales", description = "Sin Bearer, para quien todavía no puede loguearse (403 `EMAIL_NOT_VERIFIED`). Prueba email + password, confirma el código y devuelve los tokens igual que `/login`.")
     public ResponseEntity<AuthResponse> confirmEmailWithCredentials(
             @RequestHeader(API_ID_HEADER) String apiId,
             @Valid @RequestBody ConfirmEmailWithCredentialsRequest request,
@@ -118,6 +130,7 @@ public class AuthController {
     }
 
     @PostMapping("/verify-email/resend-with-credentials")
+    @Operation(summary = "Reenviar código con credenciales", description = "Sin Bearer. Prueba email + password y envía un código nuevo. 429 si pasaron menos de 60 s desde el último.")
     public ResponseEntity<Void> resendEmailVerificationWithCredentials(
             @RequestHeader(API_ID_HEADER) String apiId,
             @Valid @RequestBody CredentialsRequest request,
@@ -127,6 +140,7 @@ public class AuthController {
     }
 
     @PostMapping("/password")
+    @Operation(summary = "Cambiar password", description = "`newPassword` de 8 a 100. Revoca todas las sesiones y bloquea el token actual: hay que volver a loguearse. 400 `INVALID_CURRENT_PASSWORD` si la actual no coincide.")
     public ResponseEntity<Void> changePassword(@RequestHeader(API_ID_HEADER) String apiId,
                                                 @RequestHeader(HttpHeaders.AUTHORIZATION) String authorizationHeader,
                                                 @Valid @RequestBody ChangePasswordRequest request,

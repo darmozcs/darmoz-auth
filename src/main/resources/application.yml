@@ -11,6 +11,12 @@ spring:
     url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/nexora}
     username: ${SPRING_DATASOURCE_USERNAME:nexora}
     password: ${SPRING_DATASOURCE_PASSWORD:nexora}
+    hikari:
+      # El Postgres compartido del server tiene max_connections=100 y lo usan
+      # todos los backends; el default de Hikari (10) por servicio lo agota.
+      # Con 5 alcanza para el trafico de darmoz-auth.
+      maximum-pool-size: ${DB_POOL_SIZE:5}
+      minimum-idle: 1
 
   jpa:
     hibernate:
@@ -48,6 +54,15 @@ email-verification:
 # CORS_ALLOWED_ORIGINS=https://darmozsc.duckdns.org,http://localhost:5173).
 cors:
   allowed-origins: ${CORS_ALLOWED_ORIGINS:https://darmozsc.duckdns.org}
+
+# Swagger UI (/auth/swagger-ui.html) y OpenAPI (/auth/v3/api-docs), ver OpenApiConfig.
+springdoc:
+  api-docs:
+    enabled: ${API_DOCS_ENABLED:true}
+  swagger-ui:
+    enabled: ${API_DOCS_ENABLED:true}
+    tags-sorter: alpha
+  default-produces-media-type: application/json
 
 management:
   endpoints:
